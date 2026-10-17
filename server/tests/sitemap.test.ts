@@ -14,3 +14,10 @@ it('خريطة الموقع تضم الصفحات العامة والمنتجا�
   expect(res.text).toContain(`/store/${shown.slug}</loc>`);
   expect(res.text).not.toContain(hidden.slug);
 });
+
+it('خريطة المنتجات بدون الصفحات الثابتة', async () => {
+  const res = await request(app).get('/sitemap-products.xml');
+  expect(res.status).toBe(200);
+  expect(res.text).toContain('<urlset');
+  expect(res.text).not.toContain('<loc>http://localhost:5173/store</loc>');
+});

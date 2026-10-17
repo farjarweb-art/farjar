@@ -21,9 +21,10 @@ const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 
 /**
  * خريطة الموقع لمحركات البحث: الصفحات العامة + كل منتج ومورد معتمد.
- * تُخدم على الدومين الأساسي عبر rewrite من الواجهة (/sitemap.xml).
+ * على الدومين الأساسي: /sitemap.xml فهرس ثابت في الواجهة يشير إلى /sitemap-pages.xml (ثابت)
+ * و /sitemap-products.xml (هذا، عبر rewrite).
  */
-export async function sitemap(_req: Request, res: Response) {
+export async function sitemap(_req: Request, res: Response, opts: { includePages?: boolean } = { includePages: true }) {
   const [products, vendors] = await Promise.all([
     prisma.product.findMany({ where: publicProductWhere(), select: { slug: true, updatedAt: true }, orderBy: { updatedAt: 'desc' }, take: 5000 }),
     prisma.vendor.findMany({ where: { active: true, status: 'APPROVED', isHouse: false }, select: { slug: true, updatedAt: true }, take: 2000 }),
@@ -34,7 +35,7 @@ export async function sitemap(_req: Request, res: Response) {
   const xml = [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
-    ...STATIC_PAGES.map(([p, pr]) => url(p, pr)),
+    ...(opts.includePages ? STATIC_PAGES.map(([p, pr]) => url(p, pr)) : []),
     ...products.map((p) => url(`/store/${encodeURIComponent(p.slug)}`, 0.7, p.updatedAt)),
     ...vendors.map((v) => url(`/store/vendor/${encodeURIComponent(v.slug)}`, 0.6, v.updatedAt)),
     '</urlset>',

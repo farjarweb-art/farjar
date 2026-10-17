@@ -59,6 +59,7 @@ export function createApp() {
 
   // خريطة الموقع لمحركات البحث (تُمرَّر من الدومين الأساسي /sitemap.xml)
   app.get('/sitemap.xml', (req, res, next) => sitemap(req, res).catch(next));
+  app.get('/sitemap-products.xml', (req, res, next) => sitemap(req, res, { includePages: false }).catch(next));
 
   app.get('/health', async (_req, res) => {
     await prisma.$queryRaw`SELECT 1`;

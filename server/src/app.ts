@@ -25,6 +25,7 @@ import { notificationsRouter } from './routes/notifications';
 import { trackRouter } from './routes/public/track';
 import { LOCAL_UPLOAD_DIR } from './services/upload.service';
 import { marketRouter } from './routes/market';
+import { shareProduct } from './routes/public/share';
 import { sitemap } from './routes/public/sitemap';
 
 export function createApp() {
@@ -60,6 +61,8 @@ export function createApp() {
   // خريطة الموقع لمحركات البحث (تُمرَّر من الدومين الأساسي /sitemap.xml)
   app.get('/sitemap.xml', (req, res, next) => sitemap(req, res).catch(next));
   app.get('/sitemap-products.xml', (req, res, next) => sitemap(req, res, { includePages: false }).catch(next));
+  // رابط ترويج المنتج بصورته (يُمرَّر من الدومين الأساسي /p/:slug)
+  app.get('/share/p/:slug', (req, res, next) => shareProduct(req, res).catch(next));
 
   app.get('/health', async (_req, res) => {
     await prisma.$queryRaw`SELECT 1`;

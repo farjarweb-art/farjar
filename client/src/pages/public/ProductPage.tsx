@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useEnsureCustomer } from '../../components/auth/RequireCustomer';
 import { PRODUCT_GRID, ProductCard, ProductImage } from '../../components/store/ProductCard';
 import { QtyStepper } from '../../components/store/QtyStepper';
+import { ShareProduct } from '../../components/store/ShareProduct';
 import { Breadcrumbs, Button, ButtonLink, EmptyState, ErrorState, Icon, Price, SectionHeading, Skeleton, type Crumb } from '../../components/ui';
 import { useCart } from '../../context/CartContext';
 import { useToast } from '../../context/ToastContext';
@@ -315,6 +316,7 @@ function ProductView({ product, related }: ProductResponse) {
                   <Icon name="play" className="h-4 w-4" /> مشاهدة فيديو المنتج
                 </a>
               )}
+              <ShareProduct slug={product.slug} name={product.name} />
 
               <ul className="mt-7 space-y-3 text-sm text-muted">
                 <li className="flex items-start gap-3">

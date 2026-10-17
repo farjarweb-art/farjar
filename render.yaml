@@ -135,6 +135,10 @@ services:
       - type: rewrite
         source: /sitemap-products.xml
         destination: https://verjar-api-tpfx.onrender.com/sitemap-products.xml
+      # رابط ترويج المنتج: فيسبوك وواتساب يقرآن صورة المنتج وسعره من السيرفر، والزائر يُحوَّل لصفحة المنتج
+      - type: rewrite
+        source: /p/*
+        destination: https://verjar-api-tpfx.onrender.com/share/p/*
       # تطبيق صفحة واحدة: كل المسارات تعرض index.html
       - type: rewrite
         source: /*

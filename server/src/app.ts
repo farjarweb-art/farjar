@@ -25,6 +25,7 @@ import { notificationsRouter } from './routes/notifications';
 import { trackRouter } from './routes/public/track';
 import { LOCAL_UPLOAD_DIR } from './services/upload.service';
 import { marketRouter } from './routes/market';
+import { sitemap } from './routes/public/sitemap';
 
 export function createApp() {
   const app = express();
@@ -55,6 +56,9 @@ export function createApp() {
   if (!env.cloudinaryEnabled) {
     app.use('/uploads', express.static(LOCAL_UPLOAD_DIR, { maxAge: '7d', index: false }));
   }
+
+  // خريطة الموقع لمحركات البحث (تُمرَّر من الدومين الأساسي /sitemap.xml)
+  app.get('/sitemap.xml', (req, res, next) => sitemap(req, res).catch(next));
 
   app.get('/health', async (_req, res) => {
     await prisma.$queryRaw`SELECT 1`;

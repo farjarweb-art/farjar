@@ -130,6 +130,10 @@ services:
       - type: rewrite
         source: /api/*
         destination: https://verjar-api-tpfx.onrender.com/api/*
+      # خريطة الموقع لمحركات البحث يولّدها السيرفر (المنتجات والموردون)
+      - type: rewrite
+        source: /sitemap.xml
+        destination: https://verjar-api-tpfx.onrender.com/sitemap.xml
       # تطبيق صفحة واحدة: كل المسارات تعرض index.html
       - type: rewrite
         source: /*

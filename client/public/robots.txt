@@ -8,3 +8,7 @@ Disallow: /checkout
 Disallow: /forgot-password
 Disallow: /reset-password
 Disallow: /unsubscribe
+Disallow: /vendor
+Disallow: /driver
+
+Sitemap: https://farjarcorp.online/sitemap.xml

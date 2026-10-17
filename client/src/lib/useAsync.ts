@@ -59,6 +59,6 @@ export function useAsync<T>(fn: () => Promise<T>, deps: unknown[] = [], cacheKey
 export function useDocumentTitle(title: string) {
   useEffect(() => {
     const brand = isEn() ? BRAND.en : BRAND.ar;
-    document.title = title ? `${title} — ${brand}` : isEn() ? `${BRAND.en} — ${BRAND.tagline}` : `${BRAND.ar} | ${BRAND.en} — ${BRAND.tagline}`;
+    document.title = title ? `${title} — ${brand}` : isEn() ? `${BRAND.en} — ${BRAND.tagline}` : `${BRAND.alt} | ${BRAND.ar} ${BRAND.en} — ${BRAND.tagline}`;
   }, [title]);
 }

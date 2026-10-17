@@ -167,13 +167,13 @@ DATABASE_URL="<External Database URL>" SEED_DEMO=false npm run seed
 
 ### 6. التحقق
 
-- `https://verjar-api.onrender.com/health` يجب أن يعيد `{"ok":true,...}`.
-- افتح `https://verjar-web.onrender.com/admin` وادخل بـ `farjarweb@gmail.com` وكلمة المرور التي اخترتها في `ADMIN_PASSWORD`.
+- `https://verjar-api-tpfx.onrender.com/health` يجب أن يعيد `{"ok":true,...}`.
+- افتح `https://verjar-web-y37y.onrender.com/admin` وادخل بـ `farjarweb@gmail.com` وكلمة المرور التي اخترتها في `ADMIN_PASSWORD`.
 - من **الإعدادات** في لوحة التحكم راجع رقم الواتساب ورسوم الكشف وساعات العمل ومحتوى "نبذة عنا".
 
 ### 7. دومين خاص (اختياري)
 
-أضف الدومين في verjar-web ← Settings ← Custom Domains، ثم أضفه إلى `CLIENT_URL` في verjar-api (مثال: `https://your-domain.com,https://verjar-web.onrender.com`).
+أضف الدومين في verjar-web ← Settings ← Custom Domains، ثم أضفه إلى `CLIENT_URL` في verjar-api (مثال: `https://your-domain.com,https://verjar-web-y37y.onrender.com`).
 
 > **ملاحظات Render:**
 > - الخطة المجانية للـ Web Service تتوقف بعد فترة خمول، وأول طلب بعدها يأخذ ~30–50 ثانية. للاستخدام الفعلي اختر خطة Starter.

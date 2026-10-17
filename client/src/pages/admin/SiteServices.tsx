@@ -7,7 +7,7 @@ import { useAdmin } from '../../context/AdminAuth';
 import { hasPerm } from '../../context/Auth';
 import { api } from '../../lib/api';
 import { cx, formatDate, formatJOD } from '../../lib/format';
-import { AUDIENCE_LABEL, REQUEST_TYPE_LABEL, TIER_LABEL, type Audience, type PriceTier, type RequestType, type VisitFeePolicy } from '../../lib/siteServices';
+import { AUDIENCE_LABEL, REQUEST_TYPE_LABEL, TIER_LABEL, type Audience, type FormField, type PriceTier, type RequestType, type VisitFeePolicy } from '../../lib/siteServices';
 import { useDocumentTitle } from '../../lib/useAsync';
 
 type Service = {
@@ -28,7 +28,11 @@ type Service = {
   featured: boolean;
   sortOrder: number;
   active: boolean;
-  problems: { id: string; name: string; isOther: boolean; active: boolean; deviceIds: string[] }[];
+  optionsLabel: string;
+  priceOnRequest: boolean;
+  deliverables: string;
+  formFields: FormField[];
+  problems: { id: string; name: string; description: string; quoteRequired: boolean; isOther: boolean; active: boolean; deviceIds: string[] }[];
   devices: { deviceId: string; included: boolean; fee: number | null }[];
 };
 type Device = { id: string; name: string; description: string; fee: number; sortOrder: number; active: boolean };
@@ -119,6 +123,7 @@ function Row({ title, sub, right, onClick, inactive }: { title: ReactNode; sub?:
 const blankService = (): Omit<Service, 'id' | 'slug' | 'problems' | 'devices'> => ({
   name: '', summary: '', includes: '', audiences: ['HOME'], requestTypes: ['INSPECTION', 'INSPECTION_REPORT', 'DIAGNOSIS', 'REPAIR_QUOTE'],
   priceInside: 0, priceOutside: 0, travelFee: 0, discountPercent: 0, durationMinutes: 60, visitFeePolicy: 'SEPARATE', terms: '', featured: false, sortOrder: 0, active: true,
+  optionsLabel: '', priceOnRequest: false, deliverables: '', formFields: [],
 });
 
 function ServicesTab({ c, canEdit, reload }: TabProps) {
@@ -196,6 +201,8 @@ function ServiceModal({ service, catalog, canEdit, onClose, onSaved }: { service
         <Input label="اسم الخدمة" value={v.name} maxLength={160} onChange={(e) => setF('name', e.target.value)} error={fe('name')} />
         <Textarea label="وصف مختصر (يظهر في البطاقة)" rows={2} value={v.summary} maxLength={400} onChange={(e) => setF('summary', e.target.value)} />
         <Textarea label="ما يشمله سعر الزيارة (سطر لكل بند)" rows={4} value={v.includes} maxLength={3000} onChange={(e) => setF('includes', e.target.value)} />
+        <Textarea label="التقارير والمخرجات (سطر لكل بند — اختياري)" rows={3} value={v.deliverables} maxLength={3000} onChange={(e) => setF('deliverables', e.target.value)} />
+        <Input label="عنوان قائمة الخيارات عند الحجز (اختياري)" hint='فارغ = "ما المشكلة التي تواجهها؟" — مثال: "ما الخدمات التي تحتاجها؟"' value={v.optionsLabel} maxLength={200} onChange={(e) => setF('optionsLabel', e.target.value)} />
         <fieldset>
           <legend className="label">القسم</legend>
           <div className="grid gap-2 sm:grid-cols-2">
@@ -234,7 +241,11 @@ function ServiceModal({ service, catalog, canEdit, onClose, onSaved }: { service
           <label className="flex items-center gap-2 text-sm">
             <Switch checked={v.featured} onChange={(x) => setF('featured', x)} label="قسم رئيسي مميز" /> قسم رئيسي مميز
           </label>
+          <label className="flex items-center gap-2 text-sm">
+            <Switch checked={v.priceOnRequest} onChange={(x) => setF('priceOnRequest', x)} label="سعر الزيارة يحدد بعد مراجعة نطاق المشروع" /> سعر الزيارة "يحدد بعد مراجعة نطاق المشروع"
+          </label>
         </div>
+        <FormFieldsEditor fields={v.formFields} onChange={(x) => setF('formFields', x)} error={Object.entries(m.fieldErrors).find(([k]) => k.startsWith('formFields'))?.[1]} />
         {canEdit && (
           <div className="flex flex-wrap gap-2">
             <Button loading={m.pending === 'main'} onClick={saveMain}>
@@ -284,7 +295,7 @@ function ServiceModal({ service, catalog, canEdit, onClose, onSaved }: { service
             </section>
 
             <section className="rounded-xl border border-line p-4">
-              <h3 className="text-base">المشكلات وربطها بالأجهزة</h3>
+              <h3 className="text-base">الخيارات / المشكلات وربطها بالأجهزة</h3>
               <p className="mt-1 text-xs text-muted">يختار العميل المشكلة، فتظهر له الأجهزة المربوطة بها فقط. "مشكلة أخرى" تُظهر كل أجهزة الخدمة. خدمة بلا مشكلات تُظهر كل أجهزتها مباشرة.</p>
               <ul className="mt-3 space-y-3">
                 {problems.map((p, i) => (
@@ -295,7 +306,11 @@ function ServiceModal({ service, catalog, canEdit, onClose, onSaved }: { service
                         <Icon name="trash" className="h-4 w-4" />
                       </button>
                     </div>
+                    <Textarea label="تفاصيل الخيار (سطر لكل بند — اختياري)" wrapperClassName="mt-2" rows={2} value={p.description} maxLength={3000} onChange={(e) => setProblems(problems.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)))} />
                     <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                      <label className="flex items-center gap-2">
+                        <Switch checked={p.quoteRequired} onChange={(x) => setProblems(problems.map((y, j) => (j === i ? { ...y, quoteRequired: x } : y)))} label="يحدد بعد مراجعة نطاق المشروع" /> يحدد بعد مراجعة النطاق
+                      </label>
                       <label className="flex items-center gap-2">
                         <Switch checked={p.isOther} onChange={(x) => setProblems(problems.map((y, j) => (j === i ? { ...y, isOther: x } : y)))} label="مشكلة أخرى" /> "مشكلة أخرى"
                       </label>
@@ -325,7 +340,7 @@ function ServiceModal({ service, catalog, canEdit, onClose, onSaved }: { service
               </ul>
               {canEdit && (
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Button size="sm" variant="ghost" onClick={() => setProblems([...problems, { id: '', name: '', isOther: false, active: true, deviceIds: [] }])}>
+                  <Button size="sm" variant="ghost" onClick={() => setProblems([...problems, { id: '', name: '', description: '', quoteRequired: false, isOther: false, active: true, deviceIds: [] }])}>
                     <Icon name="plus" className="h-4 w-4" /> مشكلة
                   </Button>
                   <Button size="sm" variant="outline" loading={m.pending === 'problems'} onClick={saveProblems}>
@@ -619,5 +634,59 @@ function PriceLog() {
         </div>
       )}
     </Panel>
+  );
+}
+
+const FIELD_TYPES: [FormField['type'], string][] = [
+  ['text', 'نص قصير'],
+  ['textarea', 'نص طويل'],
+  ['number', 'رقم'],
+  ['select', 'اختيار واحد'],
+  ['multiselect', 'اختيارات متعددة'],
+];
+
+/** الحقول الإضافية التي يعبئها العميل عند الحجز (مثل اسم الشركة وطبيعة النشاط والمراحل المطلوبة) */
+function FormFieldsEditor({ fields, onChange, error }: { fields: FormField[]; onChange: (f: FormField[]) => void; error?: string }) {
+  const upd = (i: number, patch: Partial<FormField>) => onChange(fields.map((f, j) => (j === i ? { ...f, ...patch } : f)));
+  return (
+    <section className="rounded-xl border border-line p-4">
+      <h3 className="text-base">حقول إضافية في نموذج الحجز</h3>
+      <p className="mt-1 text-xs text-muted">أسئلة خاصة بهذه الخدمة (مثل اسم الشركة، المساحة التقريبية، المراحل المطلوبة). احفظ الخدمة بعد التعديل.</p>
+      <ul className="mt-3 space-y-3">
+        {fields.map((f, i) => (
+          <li key={f.key} className="rounded-lg border border-line p-3">
+            <div className="grid gap-2 sm:grid-cols-[1fr_10rem_auto] sm:items-end">
+              <Input label="عنوان الحقل" value={f.label} maxLength={160} onChange={(e) => upd(i, { label: e.target.value })} />
+              <Select label="النوع" value={f.type} onChange={(e) => upd(i, { type: e.target.value as FormField['type'] })}>
+                {FIELD_TYPES.map(([t, l]) => (
+                  <option key={t} value={t}>
+                    {l}
+                  </option>
+                ))}
+              </Select>
+              <button type="button" className="mb-1 grid h-10 w-10 place-items-center rounded-lg text-muted hover:text-danger" onClick={() => onChange(fields.filter((_, j) => j !== i))} aria-label="حذف الحقل">
+                <Icon name="trash" className="h-4 w-4" />
+              </button>
+            </div>
+            {(f.type === 'select' || f.type === 'multiselect') && (
+              <Textarea label="الخيارات (سطر لكل خيار)" wrapperClassName="mt-2" rows={3} value={(f.options ?? []).join('\n')} onChange={(e) => upd(i, { options: e.target.value.split('\n').map((x) => x.trim()).filter(Boolean) })} />
+            )}
+            <Input label="ملاحظة توضيحية (اختياري)" wrapperClassName="mt-2" value={f.hint ?? ''} maxLength={200} onChange={(e) => upd(i, { hint: e.target.value || undefined })} />
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+              <label className="flex items-center gap-2">
+                <Switch checked={!!f.required} onChange={(x) => upd(i, { required: x })} label="إلزامي" /> إلزامي
+              </label>
+              <label className="flex items-center gap-2">
+                <Switch checked={f.active !== false} onChange={(x) => upd(i, { active: x })} label="فعال" /> فعال
+              </label>
+            </div>
+          </li>
+        ))}
+      </ul>
+      {error && <p className="mt-2 text-sm text-danger">{error}</p>}
+      <Button className="mt-3" size="sm" variant="ghost" onClick={() => onChange([...fields, { key: `f${Date.now().toString(36)}`, label: '', type: 'text', required: false, active: true }])}>
+        <Icon name="plus" className="h-4 w-4" /> حقل
+      </Button>
+    </section>
   );
 }

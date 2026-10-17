@@ -108,7 +108,11 @@ export async function seedServices(prisma: PrismaClient) {
     });
     console.log('✓ مناطق الخدمات');
   }
-  if ((await prisma.siteService.count()) > 0) return;
+  if ((await prisma.siteService.count()) === 0) await seedCatalog(prisma);
+  await seedSignage(prisma);
+}
+
+async function seedCatalog(prisma: PrismaClient) {
 
   const devices = {} as Record<DeviceKey, string>;
   for (const [i, d] of DEVICES.entries()) {
@@ -151,4 +155,96 @@ export async function seedServices(prisma: PrismaClient) {
     },
   });
   console.log('✓ كتالوج الخدمات والمعاينات');
+}
+
+export const SIGNAGE_SLUG = 'industrial-wayfinding-signage';
+
+const SIGNAGE_OPTIONS: [string, string, boolean][] = [
+  [
+    'تعديل مواقع اللافتات الإرشادية الحالية',
+    'دراسة مواقع اللافتات الموجودة\nاقتراح نقل اللافتات إلى مواقع أكثر وضوحًا وفاعلية\nتحسين اتجاهات اللافتات وارتفاعاتها ومواقع تثبيتها\nتحديد اللافتات التي تحتاج إلى تعديل أو استبدال',
+    false,
+  ],
+  [
+    'إضافة لافتات إرشادية جديدة',
+    'تحديد المواقع التي تحتاج إلى لافتات جديدة\nاقتراح أنواع اللافتات وأحجامها ومحتواها\nتحديد اتجاهات الحركة ومسارات الوصول\nلافتات للأقسام والمخازن والمكاتب والمرافق ومناطق التحميل والتنزيل\nلافتات التحذير والسلامة عند الحاجة وفق المتطلبات المعتمدة للموقع',
+    false,
+  ],
+  [
+    'دراسة التغذية البصرية والوضوح الإرشادي للموقع',
+    'دراسة توزيع اللافتات الحالية داخل المنشأة\nتقييم وضوح اللافتات وسهولة قراءتها من مسافات مناسبة\nتقييم الألوان والتباين والخطوط والرموز المستخدمة\nدراسة تسلسل المعلومات وتوجيه الأشخاص من المدخل إلى وجهاتهم\nتحديد النقاط التي تسبب التشتت أو صعوبة الوصول أو الالتباس\nاقتراح تحسينات تجعل النظام الإرشادي أوضح وأكثر اتساقًا',
+    false,
+  ],
+  [
+    'إعداد دراسة متكاملة لنظام اللافتات الإرشادية',
+    'معاينة الموقع وجمع المعلومات اللازمة\nمخطط بمواقع اللافتات الحالية والمقترحة\nمخطط توزيع اللافتات على المباني والأقسام والمسارات\nنوع كل لافتة ومحتواها وأبعادها وطريقة تثبيتها المقترحة\nجدول بالكميات والأنواع والمواقع\nتوصيات لتحسين الحركة والتوجيه والوضوح البصري\nتقرير فني ومخططات توضيحية بحسب نطاق المشروع',
+    true,
+  ],
+  [
+    'تصميم وتصنيع وتركيب اللافتات الجديدة',
+    'تصميم اللافتات وفق هوية المنشأة واحتياجاتها\nاختيار المواد المناسبة لطبيعة البيئة الصناعية\nتصنيع اللافتات حسب التصميم المعتمد\nتركيب اللافتات في المواقع المحددة\nتنفيذ التعديلات المطلوبة بعد اعتماد العميل',
+    true,
+  ],
+];
+
+const SIGNAGE_FIELDS = [
+  { key: 'company', label: 'اسم المصنع أو الشركة', type: 'text', required: true },
+  { key: 'activity', label: 'نوع المنشأة وطبيعة النشاط', type: 'text', required: true },
+  { key: 'size', label: 'المساحة التقريبية أو عدد المباني والأقسام', type: 'text', required: true, hint: 'لفهم نطاق المشروع فقط — لا يُحسب سعر الزيارة بالمتر' },
+  { key: 'signs', label: 'عدد اللافتات الحالية (إن كان معروفًا)', type: 'number', required: false },
+  { key: 'stages', label: 'المراحل المطلوبة', type: 'multiselect', required: true, options: ['الدراسة', 'التصميم', 'التصنيع والتركيب', 'جميع المراحل'] },
+];
+
+/** خدمة اللافتات الإرشادية للمنشآت الصناعية — تُضاف مرة واحدة (حتى على قاعدة فيها خدمات) */
+async function seedSignage(prisma: PrismaClient) {
+  const marker = 'seed_signage';
+  if (await prisma.counter.findUnique({ where: { key: marker } })) return;
+  if (!(await prisma.siteService.findUnique({ where: { slug: SIGNAGE_SLUG } }))) {
+    const svc = await prisma.siteService.create({
+      data: {
+        slug: SIGNAGE_SLUG,
+        name: 'تصميم ودراسة وتنفيذ وتطوير اللافتات الإرشادية للمباني الصناعية',
+        summary: 'دراسة وتطوير اللافتات الإرشادية في المصانع والمستودعات لتحسين وضوح الحركة والتنقل وتنظيم الموقع وتسهيل الوصول للأقسام والمرافق، مع مراعاة متطلبات السلامة والتشغيل.',
+        includes: 'زيارة ميدانية للموقع\nمعاينة اللافتات والمسارات الحالية\nتحديد نطاق المشروع والمخرجات المطلوبة',
+        deliverables: [
+          'تقرير تقييم الوضع الحالي',
+          'مخطط مواقع اللافتات الحالية والمقترحة',
+          'دراسة التغذية البصرية والوضوح الإرشادي',
+          'قائمة اللافتات المطلوب تعديلها أو إضافتها',
+          'التصاميم والمواصفات المقترحة',
+          'جدول الكميات وعرض سعر مستقل للتصنيع والتركيب',
+          'خطة تنفيذ ومراحل عمل عند الحاجة',
+        ].join('\n'),
+        terms: 'الدراسة التفصيلية والتصميم والتصنيع والتركيب تُسعّر بشكل منفصل وفق نطاق العمل المتفق عليه، ولا يبدأ أي منها إلا بعد اعتماد نطاق العمل وعرض السعر من العميل.',
+        optionsLabel: 'ما الخدمات التي تحتاجها؟ (يمكن اختيار أكثر من خدمة)',
+        formFields: SIGNAGE_FIELDS,
+        audiences: ['BUSINESS'],
+        requestTypes: ['INSPECTION_REPORT', 'REPAIR_QUOTE'],
+        priceInside: D(35),
+        priceOutside: D(50),
+        durationMinutes: 120,
+        visitFeePolicy: 'DEDUCTIBLE',
+        featured: true,
+        sortOrder: 1,
+        problems: { create: SIGNAGE_OPTIONS.map(([name, description, quoteRequired], i) => ({ name, description, quoteRequired, sortOrder: i })) },
+      },
+    });
+    const related = await prisma.siteService.findMany({
+      where: { slug: { in: ['industrial-buildings-inspection', 'industrial-floors-inspection', 'metalwork-inspection', 'industrial-electrical-inspection'] }, deletedAt: null },
+      select: { id: true },
+    });
+    if (related.length) {
+      await prisma.serviceBundle.create({
+        data: {
+          name: 'زيارة مجمعة للمنشآت الصناعية',
+          priceInside: D(60),
+          priceOutside: D(85),
+          terms: 'تشمل الخدمات المختارة في نفس المنشأة وخلال نفس الزيارة.',
+          services: { connect: [{ id: svc.id }, ...related] },
+        },
+      });
+    }
+    console.log('✓ خدمة اللافتات الإرشادية');
+  }
+  await prisma.counter.create({ data: { key: marker, value: 1 } });
 }

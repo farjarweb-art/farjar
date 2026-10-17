@@ -112,7 +112,14 @@ export type ServiceCard = {
   discountPercent: number;
   featured: boolean;
   hasProblems: boolean;
+  priceOnRequest: boolean;
 };
+
+/** حقل إضافي في نموذج الحجز يحدده المدير لكل خدمة */
+export type FormField = { key: string; label: string; type: 'text' | 'textarea' | 'number' | 'select' | 'multiselect'; options?: string[]; required?: boolean; hint?: string; active?: boolean };
+export type ExtraAnswer = { key: string; label: string; value: string };
+
+export const SCOPE_PRICED = 'يحدد بعد مراجعة نطاق المشروع';
 
 export type Zone = { id: string; name: string; tier: PriceTier; travelFee: number; requiresApproval: boolean };
 
@@ -134,7 +141,11 @@ export type ServiceDetail = {
     visitFeePolicyText: string;
     terms: string;
     featured: boolean;
-    problems: { id: string; name: string; isOther: boolean; deviceIds: string[] }[];
+    optionsLabel: string;
+    priceOnRequest: boolean;
+    deliverables: string[];
+    formFields: FormField[];
+    problems: { id: string; name: string; isOther: boolean; description: string[]; quoteRequired: boolean; deviceIds: string[] }[];
     devices: { id: string; name: string; description: string; fee: number; included: boolean }[];
     bundles: { id: string; name: string; priceInside: number; priceOutside: number; terms: string }[];
   };
@@ -144,7 +155,8 @@ export type ServiceDetail = {
   generalTerms: string[];
 };
 
-export type PriceLine = { kind: 'visit' | 'bundle' | 'discount' | 'device' | 'travel'; label: string; amount: number };
+/** quote: بند يُسعَّر لاحقًا بعرض سعر مستقل */
+export type PriceLine = { kind: 'visit' | 'bundle' | 'discount' | 'device' | 'travel' | 'quote'; label: string; amount: number };
 
 export type VisitQuote = {
   tier: PriceTier;
@@ -157,6 +169,7 @@ export type VisitQuote = {
   visitFeePolicy: VisitFeePolicy;
   terms: string[];
   durationMinutes: number;
+  hasScopePricing: boolean;
 };
 
 export type RequestCreated = { id: string; number: number; ref: string; status: SrStatus; total: number; scheduledAt: string; message: string; whatsapp: WhatsAppResult };
@@ -175,6 +188,7 @@ export type QuoteItem = { description: string; qty: number; unitPrice: number };
 export type ServiceQuote = {
   id: string;
   number: number;
+  title: string;
   items: QuoteItem[];
   subtotal: number;
   visitFeeDeduction: number;
@@ -225,6 +239,7 @@ export type RequestCore = {
   services: { id: string; name: string; slug: string }[];
   problems: { id: string; name: string }[];
   devices: { id: string; name: string; fee: number; included: boolean }[];
+  extra: ExtraAnswer[];
   priceLines: PriceLine[];
   total: number;
   visitFeePolicy: VisitFeePolicy;
@@ -241,3 +256,28 @@ export const POLICY_TEXT: Record<VisitFeePolicy, string> = {
   DEDUCTIBLE: 'رسوم الزيارة تُخصم من قيمة أعمال الإصلاح عند الموافقة على تنفيذها.',
   SEPARATE: 'رسوم الزيارة مستقلة عن قيمة أعمال الإصلاح.',
 };
+
+/** عناوين مقترحة لعروض الأسعار المستقلة */
+export const QUOTE_TITLES = ['الإصلاح', 'الدراسة', 'التصميم', 'التصنيع والتركيب', 'التنفيذ', 'عقد صيانة'];
+
+/** هل في السطور بند يُسعَّر لاحقًا؟ */
+export const hasScope = (lines: PriceLine[]) => lines.some((l) => l.kind === 'quote');
+
+/** ملفات العميل ومستندات المشروع (مخططات، تصاميم، تقارير) */
+export const isDocumentMedia = (m: { purpose: string }) => m.purpose === 'document' || m.purpose === 'customer_document';
+
+/** يملأ الحقول الجديدة بقيم افتراضية (حماية أثناء النشر إن سبقت الواجهةُ تحديثَ السيرفر) */
+export function normalizeDetail(d: ServiceDetail): ServiceDetail {
+  const s = d.service;
+  return {
+    ...d,
+    service: {
+      ...s,
+      optionsLabel: s.optionsLabel ?? '',
+      priceOnRequest: !!s.priceOnRequest,
+      deliverables: s.deliverables ?? [],
+      formFields: s.formFields ?? [],
+      problems: s.problems.map((p) => ({ ...p, description: p.description ?? [], quoteRequired: !!p.quoteRequired })),
+    },
+  };
+}

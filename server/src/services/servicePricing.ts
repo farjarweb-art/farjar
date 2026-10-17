@@ -11,7 +11,10 @@ import { prisma } from '../lib/prisma';
  * المبالغ بالدينار بثلاث خانات (فلس).
  */
 
-export type PriceLine = { kind: 'visit' | 'bundle' | 'discount' | 'device' | 'travel'; label: string; amount: number };
+/** quote: بند يُسعَّر لاحقًا بعرض سعر مستقل (مبلغه صفر هنا) */
+export type PriceLine = { kind: 'visit' | 'bundle' | 'discount' | 'device' | 'travel' | 'quote'; label: string; amount: number };
+
+export const SCOPE_PRICED = 'يحدد بعد مراجعة نطاق المشروع';
 
 export type PricingInput = {
   serviceIds: string[];
@@ -63,7 +66,9 @@ export async function priceVisit(input: PricingInput) {
   const problemIds = [...new Set(input.problemIds ?? [])];
   const problems = main.problems.filter((p) => problemIds.includes(p.id));
   if (problems.length !== problemIds.length) throw badRequest('إحدى المشكلات المختارة غير متاحة');
-  if (main.problems.length && !problems.length) throw badRequest('اختر المشكلة التي تواجهها (يمكنك اختيار أكثر من مشكلة)', { field: 'problemIds' });
+  if (main.problems.length && !problems.length) {
+    throw badRequest(main.optionsLabel ? 'اختر خيارًا واحدًا على الأقل من الخدمات المطلوبة' : 'اختر المشكلة التي تواجهها (يمكنك اختيار أكثر من مشكلة)', { field: 'problemIds' });
+  }
 
   const deviceIds = [...new Set(input.deviceIds ?? [])];
   const allowed = allowedDeviceIds(main, problemIds);
@@ -95,6 +100,10 @@ export async function priceVisit(input: PricingInput) {
   }
   for (const s of services) {
     if (bundled.has(s.id)) continue;
+    if (s.priceOnRequest) {
+      lines.push({ kind: 'quote', label: `زيارة: ${s.name} — ${SCOPE_PRICED}`, amount: 0 });
+      continue;
+    }
     const price = visitPrice(s);
     lines.push({ kind: 'visit', label: `زيارة: ${s.name} (${TIER_AR[tier]})`, amount: r3(price) });
     if (s.discountPercent > 0) lines.push({ kind: 'discount', label: `خصم ${s.discountPercent}% على ${s.name}`, amount: -r3((price * s.discountPercent) / 100) });
@@ -106,6 +115,9 @@ export async function priceVisit(input: PricingInput) {
     lines.push({ kind: 'device', label: link.included ? `${link.device.name} (مشمول في الزيارة)` : link.device.name, amount: r3(fee) });
     return { id, name: link.device.name, fee: r3(fee), included: link.included };
   });
+
+  // خيارات تُسعَّر بعرض سعر مستقل بعد الزيارة (دراسة متكاملة، تصميم وتصنيع…)
+  for (const p of problems.filter((x) => x.quoteRequired)) lines.push({ kind: 'quote', label: `${p.name} — ${SCOPE_PRICED} (عرض سعر مستقل)`, amount: 0 });
 
   const serviceTravel = inside ? 0 : Math.max(0, ...services.map((s) => num(s.travelFee)));
   const travel = r3(num(zone.travelFee) + serviceTravel);
@@ -119,7 +131,9 @@ export async function priceVisit(input: PricingInput) {
     tier,
     zone: { id: zone.id, name: zone.name, requiresApproval: zone.requiresApproval },
     services: services.map((s) => ({ id: s.id, name: s.name, slug: s.slug, durationMinutes: s.durationMinutes })),
-    problems: problems.map((p) => ({ id: p.id, name: p.name })),
+    problems: problems.map((p) => ({ id: p.id, name: p.name, quoteRequired: p.quoteRequired })),
+    /** فيه بنود تُسعَّر لاحقًا بعرض سعر مستقل */
+    hasScopePricing: lines.some((l) => l.kind === 'quote'),
     devices,
     lines,
     total,

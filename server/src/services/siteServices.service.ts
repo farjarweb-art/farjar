@@ -1,4 +1,5 @@
 import type { ClientType, Prisma, ServiceRequestStatus, ServiceRequestType } from '@prisma/client';
+import { badRequest } from '../lib/http';
 import { prisma } from '../lib/prisma';
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -100,6 +101,8 @@ export function serviceRequestMessage(r: {
   problems: { name: string }[];
   devices: { name: string }[];
   needsApproval: boolean;
+  extra?: ExtraAnswer[];
+  scopePriced?: boolean;
 }) {
   const when = r.scheduledAt.toLocaleString('ar-JO', { timeZone: 'Asia/Amman', dateStyle: 'full', timeStyle: 'short' });
   return [
@@ -108,12 +111,50 @@ export function serviceRequestMessage(r: {
     `نوع الطلب: ${REQUEST_TYPE_AR[r.requestType]}`,
     r.problems.length ? `المشكلة: ${r.problems.map((p) => p.name).join('، ')}` : '',
     r.devices.length ? `الأجهزة: ${r.devices.map((d) => d.name).join('، ')}` : '',
+    ...(r.extra ?? []).map((x) => `${x.label}: ${x.value}`),
     `العميل: ${r.name} — ${r.phone} (${CLIENT_TYPE_AR[r.clientType]} · ${r.propertyType})`,
     `الموقع: ${r.zoneName} — ${r.area} — ${r.address}`,
     `الموعد المطلوب: ${when}`,
-    `الإجمالي المعتمد: ${money(r.total)}`,
+    `الإجمالي المعتمد: ${money(r.total)}${r.scopePriced ? ' + بنود تُسعَّر بعد مراجعة نطاق المشروع' : ''}`,
     r.needsApproval ? '⚠️ المنطقة تحتاج موافقة مسبقة' : '',
   ]
     .filter(Boolean)
     .join('\n');
+}
+
+// ───── الحقول الإضافية في نموذج الحجز (يعرّفها المدير لكل خدمة) ─────
+
+export type FormField = { key: string; label: string; type: 'text' | 'textarea' | 'number' | 'select' | 'multiselect'; options?: string[]; required?: boolean; hint?: string; active?: boolean };
+export type ExtraAnswer = { key: string; label: string; value: string };
+
+export function parseFormFields(raw: unknown): FormField[] {
+  return Array.isArray(raw) ? (raw as FormField[]).filter((f) => f && typeof f.key === 'string' && typeof f.label === 'string' && f.active !== false) : [];
+}
+
+/** يتحقق من إجابات العميل ويحفظها مع عنوان كل حقل (نسخة ثابتة حتى لو عدّل المدير الحقول لاحقًا) */
+export function resolveExtra(raw: unknown, answers: Record<string, unknown> | undefined): ExtraAnswer[] {
+  const out: ExtraAnswer[] = [];
+  for (const f of parseFormFields(raw)) {
+    const v = answers?.[f.key];
+    const field = `extra.${f.key}`;
+    let value = '';
+    if (f.type === 'multiselect') {
+      const list = Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean) : [];
+      if (list.some((x) => !f.options?.includes(x))) throw badRequest(`اختيار غير صحيح في "${f.label}"`, { field });
+      value = [...new Set(list)].join('، ');
+    } else if (f.type === 'select') {
+      value = typeof v === 'string' ? v.trim() : '';
+      if (value && !f.options?.includes(value)) throw badRequest(`اختيار غير صحيح في "${f.label}"`, { field });
+    } else if (f.type === 'number') {
+      const s = v == null ? '' : String(v).trim();
+      if (s && (!/^\d+(\.\d+)?$/.test(s) || Number(s) > 1_000_000)) throw badRequest(`"${f.label}" يجب أن يكون رقمًا`, { field });
+      value = s;
+    } else {
+      value = typeof v === 'string' ? v.trim() : '';
+      if (value.length > (f.type === 'textarea' ? 3000 : 300)) throw badRequest(`"${f.label}" أطول من المسموح`, { field });
+    }
+    if (f.required && !value) throw badRequest(`${f.label} مطلوب`, { field });
+    if (value) out.push({ key: f.key, label: f.label, value });
+  }
+  return out;
 }

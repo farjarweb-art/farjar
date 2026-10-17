@@ -6,7 +6,7 @@ import { PriceSummary } from '../../components/services/PriceSummary';
 import { Button, ButtonLink, Checkbox, ErrorState, Icon, Input, Select, Tag, Textarea } from '../../components/ui';
 import { api } from '../../lib/api';
 import { displayPhone, formatDate, formatDateShort, formatJOD } from '../../lib/format';
-import { POLICY_TEXT, QUOTE_STATUS_LABEL, TIER_LABEL, statusTone, type QuoteItem, type RequestCore, type RequestMedia, type ServiceQuote, type SrStatus } from '../../lib/siteServices';
+import { POLICY_TEXT, QUOTE_STATUS_LABEL, QUOTE_TITLES, isDocumentMedia, TIER_LABEL, statusTone, type QuoteItem, type RequestCore, type RequestMedia, type ServiceQuote, type SrStatus } from '../../lib/siteServices';
 import { useDocumentTitle } from '../../lib/useAsync';
 
 type Detail = RequestCore & {
@@ -124,8 +124,9 @@ export default function ServiceRequestDetail() {
               items={[
                 ['الخدمات', r.services.map((s) => s.name).join('، ')],
                 ['نوع الطلب', r.requestTypeLabel],
-                r.problems.length > 0 && ['المشكلة', r.problems.map((p) => p.name).join('، ')],
-                ['الأجهزة', r.devices.length ? r.devices.map((d) => `${d.name}${d.included ? ' (مشمول)' : ''}`).join('، ') : 'بدون'],
+                r.problems.length > 0 && ['المشكلة / الخدمات المطلوبة', r.problems.map((p) => p.name).join('، ')],
+                r.devices.length > 0 && ['الأجهزة', r.devices.map((d) => `${d.name}${d.included ? ' (مشمول)' : ''}`).join('، ')],
+                ...(r.extra ?? []).map((x): [string, string] => [x.label, x.value]),
                 ['الوصف', <span className="whitespace-pre-line">{r.description}</span>],
                 r.problemLocation && ['مكان المشكلة', r.problemLocation],
                 r.notes && ['ملاحظات العميل', r.notes],
@@ -134,6 +135,7 @@ export default function ServiceRequestDetail() {
             {customerMedia.length > 0 && <MediaGrid items={customerMedia} />}
           </Panel>
 
+          <DocumentsPanel request={r} onChanged={q.reload} />
           <ReportEditor request={r} onSaved={q.reload} />
           <QuotesPanel request={r} onChanged={q.reload} />
 
@@ -340,6 +342,7 @@ function QuotesPanel({ request: r, onChanged }: { request: Detail; onChanged: ()
   const m = useMutation();
   const [editing, setEditing] = useState<ServiceQuote | 'new' | null>(null);
   const [items, setItems] = useState<QuoteItem[]>([emptyItem()]);
+  const [title, setTitle] = useState('');
   const [notes, setNotes] = useState('');
   const [validUntil, setValidUntil] = useState('');
   const [deduct, setDeduct] = useState(r.visitFeePolicy === 'DEDUCTIBLE');
@@ -347,6 +350,7 @@ function QuotesPanel({ request: r, onChanged }: { request: Detail; onChanged: ()
   function open(qt: ServiceQuote | 'new') {
     setEditing(qt);
     setItems(qt === 'new' ? [emptyItem()] : qt.items.map((i) => ({ ...i })));
+    setTitle(qt === 'new' ? '' : qt.title);
     setNotes(qt === 'new' ? '' : qt.notes);
     setValidUntil(qt !== 'new' && qt.validUntil ? formatDateShort(qt.validUntil) : '');
     setDeduct(qt === 'new' ? r.visitFeePolicy === 'DEDUCTIBLE' : qt.visitFeeDeduction > 0);
@@ -355,7 +359,7 @@ function QuotesPanel({ request: r, onChanged }: { request: Detail; onChanged: ()
   const deduction = deduct ? Math.min(r.total, subtotal) : 0;
 
   async function save(send: boolean) {
-    const body = { items: items.filter((i) => i.description.trim()), notes, validUntil: validUntil || null, deductVisitFee: deduct, send };
+    const body = { title: title.trim(), items: items.filter((i) => i.description.trim()), notes, validUntil: validUntil || null, deductVisitFee: deduct, send };
     const ok = await m.run(send ? 'send' : 'save', () => (editing === 'new' ? api.post(`/admin/service-requests/${r.id}/quotes`, body) : api.patch(`/admin/service-requests/${r.id}/quotes/${(editing as ServiceQuote).id}`, body)), send ? 'تم إرسال عرض السعر للعميل' : 'تم حفظ عرض السعر');
     if (ok) {
       setEditing(null);
@@ -368,7 +372,7 @@ function QuotesPanel({ request: r, onChanged }: { request: Detail; onChanged: ()
 
   return (
     <Panel
-      title="عروض أسعار الإصلاح"
+      title="عروض الأسعار (إصلاح، دراسة، تصميم، تصنيع وتركيب)"
       actions={
         !editing && r.status !== 'CANCELLED' ? (
           <Button size="sm" variant="outline" onClick={() => open('new')}>
@@ -383,7 +387,7 @@ function QuotesPanel({ request: r, onChanged }: { request: Detail; onChanged: ()
         {r.quotes.map((qt) => (
           <li key={qt.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line px-3 py-2.5">
             <span className="text-[15px]">
-              عرض رقم {qt.number} — <b>{formatJOD(qt.total)}</b>
+              {qt.title ? <b>{qt.title}</b> : 'عرض'} <span className="text-muted">رقم {qt.number}</span> — <b>{formatJOD(qt.total)}</b>
               {qt.visitFeeDeduction > 0 && <span className="text-xs text-muted"> (بعد خصم الزيارة {formatJOD(qt.visitFeeDeduction)})</span>}
             </span>
             <span className="flex flex-wrap items-center gap-1.5">
@@ -409,6 +413,15 @@ function QuotesPanel({ request: r, onChanged }: { request: Detail; onChanged: ()
       {editing && (
         <div className="mt-4 space-y-3 rounded-xl border border-ink p-4">
           <h3 className="text-base">{editing === 'new' ? 'عرض سعر جديد' : `تعديل العرض رقم ${editing.number}`}</h3>
+          <div>
+            <Input label="نوع العرض" placeholder="مثال: الدراسة، التصميم، التصنيع والتركيب" list="quote-titles" value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} />
+            <datalist id="quote-titles">
+              {QUOTE_TITLES.map((t) => (
+                <option key={t} value={t} />
+              ))}
+            </datalist>
+            <p className="mt-1 text-xs text-muted">يمكنك إصدار عروض مستقلة لكل مرحلة (دراسة، تصميم، تصنيع وتركيب) — موافقة العميل على أحدها لا تلغي غيره.</p>
+          </div>
           {items.map((it, i) => (
             <div key={i} className="grid grid-cols-[1fr_4.5rem_6rem_auto] items-end gap-2">
               <Input label={i === 0 ? 'البند' : ' '} value={it.description} maxLength={400} onChange={(e) => setItems(items.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)))} />
@@ -460,3 +473,57 @@ function QuotesPanel({ request: r, onChanged }: { request: Detail; onChanged: ()
   );
 }
 
+
+/** مستندات المشروع: ملفات العميل، والمخططات والتصاميم والتقارير التي ترسلها الإدارة له */
+function DocumentsPanel({ request: r, onChanged }: { request: Detail; onChanged: () => void }) {
+  const m = useMutation();
+  const [title, setTitle] = useState('');
+  const docs = r.media.filter(isDocumentMedia);
+  async function upload(files: FileList | null) {
+    if (!files?.length) return;
+    const fd = new FormData();
+    if (title.trim()) fd.append('title', title.trim());
+    Array.from(files).forEach((f) => fd.append('files', f));
+    if (await m.run('docs', () => api.post(`/admin/service-requests/${r.id}/documents`, fd), 'تم إرفاق المستندات وإشعار العميل')) {
+      setTitle('');
+      onChanged();
+    }
+  }
+  async function remove(id: string) {
+    if (await m.run(`dd-${id}`, () => api.del(`/admin/service-requests/${r.id}/media/${id}`), 'تم حذف الملف')) onChanged();
+  }
+  return (
+    <Panel title="المستندات والمخططات">
+      {docs.length > 0 ? (
+        <ul className="mb-4 divide-y divide-line">
+          {docs.map((d) => (
+            <li key={d.id} className="flex items-center justify-between gap-3 py-2 text-[15px]">
+              <a href={d.url} target="_blank" rel="noopener noreferrer" className="flex min-w-0 items-center gap-2 hover:underline">
+                <Icon name="file" className="h-4 w-4 shrink-0" />
+                <span className="truncate">{d.originalName ?? 'ملف'}</span>
+              </a>
+              <span className="flex shrink-0 items-center gap-2">
+                <Tag tone={d.purpose === 'document' ? 'brand' : 'neutral'}>{d.purpose === 'document' ? 'أُرسل للعميل' : 'من العميل'}</Tag>
+                {d.purpose === 'document' && (
+                  <Button size="sm" variant="ghost" loading={m.pending === `dd-${d.id}`} onClick={() => remove(d.id)}>
+                    حذف
+                  </Button>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mb-4 text-sm text-muted">لا توجد مستندات بعد.</p>
+      )}
+      <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+        <Input label="عنوان المستند (اختياري)" placeholder="مثال: مخطط توزيع اللافتات، التصميم المقترح، جدول الكميات" value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} />
+        <label className="flex min-h-[44px] cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-line-strong px-4 text-sm font-semibold hover:border-ink/50">
+          <Icon name="upload" className="h-4 w-4" /> {m.pending === 'docs' ? 'جارٍ الرفع…' : 'إرفاق ملفات للعميل'}
+          <input type="file" multiple accept="image/*,application/pdf,.pdf,.dwg,.dxf" className="sr-only" onChange={(e) => void upload(e.target.files)} />
+        </label>
+      </div>
+      <p className="mt-2 text-xs text-muted">PDF أو صور أو ملفات CAD — تظهر للعميل في طلبه ويصله إشعار.</p>
+    </Panel>
+  );
+}

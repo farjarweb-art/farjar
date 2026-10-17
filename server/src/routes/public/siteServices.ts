@@ -13,7 +13,7 @@ import { memoryUpload, uploadGuard } from '../../middleware/upload';
 import { accountCustomer } from '../../services/customer.service';
 import { getDaySlots } from '../../services/schedule.service';
 import { priceVisit } from '../../services/servicePricing';
-import { CLIENT_TYPE_AR, REQUEST_TYPE_AR, logEvent, serviceRequestMessage } from '../../services/siteServices.service';
+import { CLIENT_TYPE_AR, REQUEST_TYPE_AR, logEvent, parseFormFields, resolveExtra, serviceRequestMessage } from '../../services/siteServices.service';
 import { POLICIES, validateAndStore, validateFile } from '../../services/upload.service';
 import { notifyAdmin } from '../../services/whatsapp.service';
 import { dateField, latField, lngField, nameField, optionalText, phoneField, requiredText, timeField } from '../../validators/common';
@@ -43,7 +43,7 @@ siteServicesRouter.get(
     const services = await prisma.siteService.findMany({
       where: { active: true, deletedAt: null },
       orderBy: [{ featured: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
-      select: { id: true, name: true, slug: true, summary: true, audiences: true, priceInside: true, priceOutside: true, discountPercent: true, featured: true, _count: { select: { problems: true } } },
+      select: { id: true, name: true, slug: true, summary: true, audiences: true, priceInside: true, priceOutside: true, discountPercent: true, featured: true, priceOnRequest: true, _count: { select: { problems: true } } },
     });
     ok(res, {
       services: services.map(({ _count, ...s }) => ({ ...s, priceInside: num(s.priceInside), priceOutside: num(s.priceOutside), hasProblems: _count.problems > 0 })),
@@ -110,7 +110,18 @@ siteServicesRouter.get(
         visitFeePolicyText: POLICY_AR[s.visitFeePolicy],
         terms: s.terms,
         featured: s.featured,
-        problems: s.problems.map((p) => ({ id: p.id, name: p.name, isOther: p.isOther, deviceIds: p.devices.map((d) => d.id) })),
+        optionsLabel: s.optionsLabel,
+        priceOnRequest: s.priceOnRequest,
+        deliverables: s.deliverables.split('\n').map((l) => l.trim()).filter(Boolean),
+        formFields: parseFormFields(s.formFields),
+        problems: s.problems.map((p) => ({
+          id: p.id,
+          name: p.name,
+          isOther: p.isOther,
+          description: p.description.split('\n').map((l) => l.trim()).filter(Boolean),
+          quoteRequired: p.quoteRequired,
+          deviceIds: p.devices.map((d) => d.id),
+        })),
         devices: s.devices.map((l) => ({ id: l.deviceId, name: l.device.name, description: l.device.description, fee: l.included ? 0 : Number(l.fee ?? l.device.fee), included: l.included })),
         bundles: s.bundles.map((b) => ({ id: b.id, name: b.name, priceInside: num(b.priceInside), priceOutside: num(b.priceOutside), terms: b.terms })),
       },
@@ -125,6 +136,7 @@ siteServicesRouter.get(
 /** حد الطلبات المفتوحة بانتظار التأكيد لكل عميل */
 export const MAX_OPEN_SERVICE_REQUESTS = 5;
 const MAX_PHOTOS = 6;
+const MAX_DOCUMENTS = 5;
 
 const createInput = quoteInput.extend({
   requestType: z.enum(['INSPECTION', 'INSPECTION_REPORT', 'DIAGNOSIS', 'REPAIR_QUOTE', 'REPAIR', 'PREVENTIVE', 'CONTRACT'], { errorMap: () => ({ message: 'اختر نوع الطلب' }) }),
@@ -143,12 +155,16 @@ const createInput = quoteInput.extend({
   time: timeField,
   /** المبلغ الذي رآه العميل — إن تغيّر السعر قبل الإرسال نطلب منه المراجعة */
   expectedTotal: z.coerce.number().min(0),
+  /** إجابات الحقول الإضافية التي يحددها المدير للخدمة */
+  extra: z.record(z.union([z.string().max(3000), z.number(), z.array(z.string().max(200)).max(30)])).optional(),
   acceptTerms: z.literal(true, { errorMap: () => ({ message: 'يجب الموافقة على الشروط وملخص السعر قبل تأكيد الحجز' }) }),
 });
 
-const upload = memoryUpload(40, MAX_PHOTOS + 1).fields([
+const upload = memoryUpload(40, MAX_PHOTOS + MAX_DOCUMENTS + 1).fields([
   { name: 'photos', maxCount: MAX_PHOTOS },
   { name: 'video', maxCount: 1 },
+  /** مخططات الموقع وملفات PDF/CAD */
+  { name: 'documents', maxCount: MAX_DOCUMENTS },
 ]);
 
 siteServicesRouter.post(
@@ -177,12 +193,15 @@ siteServicesRouter.post(
     const files = (req.files ?? {}) as Record<string, Express.Multer.File[] | undefined>;
     const photos = files.photos ?? [];
     const videos = files.video ?? [];
+    const documents = files.documents ?? [];
     photos.forEach((f) => validateFile(f, POLICIES.photos));
+    documents.forEach((f) => validateFile(f, POLICIES.technical));
     videos.forEach((f) => validateFile(f, { kinds: ['VIDEO'], maxBytes: { VIDEO: 40 * 1024 * 1024 } }));
 
-    const main = await prisma.siteService.findFirst({ where: { id: input.serviceIds[0], active: true, deletedAt: null }, select: { requestTypes: true } });
+    const main = await prisma.siteService.findFirst({ where: { id: input.serviceIds[0], active: true, deletedAt: null }, select: { requestTypes: true, formFields: true } });
     if (!main) throw badRequest('الخدمة غير متاحة حاليًا');
     if (!main.requestTypes.includes(input.requestType)) throw badRequest('نوع الطلب غير متاح لهذه الخدمة', { field: 'requestType' });
+    const extra = resolveExtra(main.formFields, input.extra);
 
     const price = await priceVisit(input);
     if (Math.abs(price.total - input.expectedTotal) > 0.0005) {
@@ -195,7 +214,11 @@ siteServicesRouter.post(
     if (!day.open || !slot || slot.reason === 'past') throw badRequest('اختر يومًا ووقتًا من الأوقات المعروضة', { field: 'time' });
     const scheduledAt = ammanToUtc(input.date, input.time);
 
-    const stored = [...(await validateAndStore(photos, POLICIES.photos, 'services')), ...(await validateAndStore(videos, { kinds: ['VIDEO'], maxBytes: { VIDEO: 40 * 1024 * 1024 } }, 'services'))];
+    const stored = [
+      ...(await validateAndStore(photos, POLICIES.photos, 'services')),
+      ...(await validateAndStore(videos, { kinds: ['VIDEO'], maxBytes: { VIDEO: 40 * 1024 * 1024 } }, 'services')),
+    ];
+    const storedDocs = await validateAndStore(documents, POLICIES.technical, 'services/documents');
 
     const created = await prisma.$transaction(async (tx) => {
       const customer = await accountCustomer(tx, req.auth!.sub);
@@ -222,19 +245,25 @@ siteServicesRouter.post(
           services: price.services as Prisma.InputJsonValue,
           problems: price.problems as Prisma.InputJsonValue,
           devices: price.devices as Prisma.InputJsonValue,
+          extra: extra as Prisma.InputJsonValue,
           priceLines: price.lines as Prisma.InputJsonValue,
           total: new Prisma.Decimal(price.total),
           visitFeePolicy: price.visitFeePolicy,
           needsApproval: price.zone.requiresApproval,
           termsAcceptedAt: new Date(),
-          media: { create: stored.map((f) => ({ kind: f.kind, url: f.url, publicId: f.publicId, originalName: f.originalName })) },
+          media: {
+            create: [
+              ...stored.map((f) => ({ kind: f.kind, url: f.url, publicId: f.publicId, originalName: f.originalName })),
+              ...storedDocs.map((f) => ({ kind: f.kind, purpose: 'customer_document', url: f.url, publicId: f.publicId, originalName: f.originalName })),
+            ],
+          },
         },
       });
       await logEvent(tx, r.id, { kind: 'created', to: 'NEW', actorName: input.name, note: `حُجز بسعر ${price.total} د.أ` });
       return r;
     });
 
-    const text = serviceRequestMessage({ ...created, total: price.total, services: price.services, problems: price.problems, devices: price.devices });
+    const text = serviceRequestMessage({ ...created, total: price.total, services: price.services, problems: price.problems, devices: price.devices, extra, scopePriced: price.hasScopePricing });
     const wa = await notifyAdmin(text, { entityType: 'service_request', entityId: created.id });
     emitAdmin({ type: 'service_request.created', id: created.id, title: `طلب معاينة #${created.number} — ${price.services[0].name}` });
     await audit({ actorType: 'customer', actorId: req.auth!.sub, action: 'create', entity: 'service_request', entityId: created.id });

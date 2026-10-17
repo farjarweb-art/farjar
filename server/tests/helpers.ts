@@ -36,7 +36,7 @@ export async function resetDb() {
     'Category', '_CorporateRequestToCorporateService', 'CorporateRequest', 'CorporateService', 'Customer', 'Technician',
     'WhatsAppLog', 'AuditLog', 'Setting', 'User', 'MonthlySnapshot', 'CouponRedemption', 'Reward', 'Recognition', 'Coupon', 'LoyaltyPointsLedger', 'FarjarFeeAllocation', 'FarjarFeePayment',
     'ServiceQuote', 'ServiceReport', 'ServiceRequestEvent', 'ServiceRequestMedia', 'ServiceRequest', '_ServiceDeviceToServiceProblem', '_ServiceBundleToSiteService',
-    'ServiceProblem', 'ServiceDeviceLink', 'ServiceBundle', 'SiteService', 'ServiceDevice', 'ServiceZone',
+    'ServiceProblem', 'ServiceDeviceLink', 'ServiceBundle', 'SiteService', 'ServiceDevice', 'ServiceZone', 'Counter',
   ];
   await prisma.$executeRawUnsafe(`TRUNCATE ${tables.map((t) => `"${t}"`).join(', ')} CASCADE`);
   // الأرقام المعروضة تبدأ من 1000 كما في الـ migration

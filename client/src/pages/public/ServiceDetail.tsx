@@ -2,13 +2,13 @@ import { useParams } from 'react-router-dom';
 import { Breadcrumbs, ButtonLink, ErrorState, Icon, Skeleton } from '../../components/ui';
 import { api } from '../../lib/api';
 import { formatJOD } from '../../lib/format';
-import { AUDIENCE_LABEL, type ServiceDetail as Detail } from '../../lib/siteServices';
+import { AUDIENCE_LABEL, SCOPE_PRICED, normalizeDetail, type ServiceDetail as Detail } from '../../lib/siteServices';
 import { useAsync, useDocumentTitle } from '../../lib/useAsync';
 
 /** صفحة الخدمة: ما يشمله سعر الزيارة، الأسعار، المشكلات والأجهزة، ثم الحجز */
 export default function ServiceDetail() {
   const { slug = '' } = useParams();
-  const { data, error, loading, reload } = useAsync(() => api.get<Detail>(`/site-services/${encodeURIComponent(slug)}`), [slug], `service:${slug}`);
+  const { data, error, loading, reload } = useAsync(() => api.get<Detail>(`/site-services/${encodeURIComponent(slug)}`).then(normalizeDetail), [slug], `service:${slug}`);
   const s = data?.service;
   useDocumentTitle(s?.name ?? 'الخدمات');
 
@@ -59,14 +59,57 @@ export default function ServiceDetail() {
             </section>
           )}
 
-          {s.problems.length > 0 && (
+          {s.problems.length > 0 && s.problems.some((p) => p.description.length) ? (
             <section>
-              <h2 className="text-xl">المشكلات التي نكشف عنها</h2>
-              <p className="mt-1 text-sm text-muted">تختار مشكلة أو أكثر عند الحجز، وتظهر لك الأجهزة المناسبة لها.</p>
-              <ul className="mt-4 flex flex-wrap gap-2">
-                {s.problems.map((p) => (
-                  <li key={p.id} className="rounded-full border border-line-strong px-3 py-1.5 text-sm">
-                    {p.name}
+              <h2 className="text-xl">الخدمات المتاحة</h2>
+              <p className="mt-1 text-sm text-muted">يمكنك اختيار خدمة واحدة أو أكثر في نفس الطلب.</p>
+              <ol className="mt-4 space-y-3">
+                {s.problems.map((p, i) => (
+                  <li key={p.id} className="card p-4 sm:p-5">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <h3 className="text-base leading-snug sm:text-lg">
+                        <span className="num me-2 text-muted">{String(i + 1).padStart(2, '0')}</span>
+                        {p.name}
+                      </h3>
+                      {p.quoteRequired && <span className="rounded-md bg-subtle px-2 py-0.5 text-xs font-semibold">{SCOPE_PRICED}</span>}
+                    </div>
+                    {p.description.length > 0 && (
+                      <ul className="mt-3 grid gap-1.5 text-[15px] text-muted sm:grid-cols-2">
+                        {p.description.map((d) => (
+                          <li key={d} className="flex items-start gap-2">
+                            <Icon name="check" className="mt-1 h-3.5 w-3.5 shrink-0 text-success" /> {d}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            </section>
+          ) : (
+            s.problems.length > 0 && (
+              <section>
+                <h2 className="text-xl">المشكلات التي نكشف عنها</h2>
+                <p className="mt-1 text-sm text-muted">تختار مشكلة أو أكثر عند الحجز، وتظهر لك الأجهزة المناسبة لها.</p>
+                <ul className="mt-4 flex flex-wrap gap-2">
+                  {s.problems.map((p) => (
+                    <li key={p.id} className="rounded-full border border-line-strong px-3 py-1.5 text-sm">
+                      {p.name}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )
+          )}
+
+          {s.deliverables.length > 0 && (
+            <section>
+              <h2 className="text-xl">التقارير والمخرجات</h2>
+              <p className="mt-1 text-sm text-muted">بحسب الخدمات التي تختارها، يمكن أن تشمل المخرجات:</p>
+              <ul className="mt-4 grid gap-2 sm:grid-cols-2">
+                {s.deliverables.map((x) => (
+                  <li key={x} className="flex items-start gap-2 rounded-lg bg-subtle px-3 py-2.5 text-[15px]">
+                    <Icon name="file" className="mt-0.5 h-4 w-4 shrink-0" /> {x}
                   </li>
                 ))}
               </ul>
@@ -95,13 +138,18 @@ export default function ServiceDetail() {
         <aside className="space-y-4 lg:sticky lg:top-32 lg:self-start">
           <section className="rounded-xl bg-subtle p-5">
             <h2 className="text-lg">سعر الزيارة</h2>
-            <dl className="mt-3 divide-y divide-line text-[15px]">
-              <Row label="داخل عمّان" value={formatJOD(s.priceInside)} />
-              <Row label="خارج عمّان" value={formatJOD(s.priceOutside)} />
-            </dl>
+            {s.priceOnRequest ? (
+              <p className="mt-3 font-semibold">{SCOPE_PRICED}</p>
+            ) : (
+              <dl className="mt-3 divide-y divide-line text-[15px]">
+                <Row label="داخل عمّان" value={formatJOD(s.priceInside)} />
+                <Row label="خارج عمّان" value={formatJOD(s.priceOutside)} />
+              </dl>
+            )}
             {s.discountPercent > 0 && <p className="mt-2 text-sm font-semibold text-success">خصم {s.discountPercent}% على سعر الزيارة حاليًا</p>}
             <p className="mt-3 text-sm text-muted">قد تُضاف رسوم انتقال لبعض المناطق البعيدة، وتظهر لك قبل التأكيد.</p>
             <p className="mt-2 text-sm text-muted">{s.visitFeePolicyText}</p>
+            {s.terms && <p className="mt-2 text-sm text-muted">{s.terms}</p>}
           </section>
           {data.combinable.length > 0 && (
             <section className="rounded-xl border border-line p-5">

@@ -13,7 +13,7 @@ import { Button, Icon } from '../ui';
 export function ServiceDocument({ request: r, kind, quote, back }: { request: RequestCore; kind: 'report' | 'quote'; quote?: ServiceQuote | null; back?: ReactNode }) {
   const { settings } = useSite();
   const report = r.report;
-  const title = kind === 'report' ? 'تقرير فني' : `عرض سعر إصلاح رقم ${quote?.number ?? ''}`;
+  const title = kind === 'report' ? 'تقرير فني' : `عرض سعر${quote?.title ? ` — ${quote.title}` : ' إصلاح'} رقم ${quote?.number ?? ''}`;
   const photos = r.media.filter((m) => m.purpose === 'report' && m.kind === 'IMAGE');
 
   return (
@@ -60,13 +60,19 @@ export function ServiceDocument({ request: r, kind, quote, back }: { request: Re
           rows={[
             ['الخدمة', r.services.map((s) => s.name).join('، ')],
             ['نوع الطلب', r.requestTypeLabel],
-            ['المشكلة', r.problems.map((p) => p.name).join('، ') || r.description],
+            ['المشكلة / الخدمات', r.problems.map((p) => p.name).join('، ') || r.description],
             ['مكان المشكلة', r.problemLocation],
             ['الفحوصات والأجهزة', (kind === 'report' && report?.devicesUsed) || r.devices.map((d) => d.name).join('، ') || 'المعاينة الأساسية'],
             ['الفني', r.technician?.name],
           ]}
         />
       </Section>
+
+      {r.extra?.length > 0 && (
+        <Section title="بيانات المشروع">
+          <Grid rows={r.extra.map((x): [string, ReactNode] => [x.label, x.value])} />
+        </Section>
+      )}
 
       {kind === 'report' && report && (
         <>
@@ -86,7 +92,7 @@ export function ServiceDocument({ request: r, kind, quote, back }: { request: Re
       )}
 
       {kind === 'quote' && quote && (
-        <Section title="بنود أعمال الإصلاح">
+        <Section title={quote.title ? `بنود العرض — ${quote.title}` : 'بنود أعمال الإصلاح'}>
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="border-b border-black text-start">
@@ -126,7 +132,7 @@ export function ServiceDocument({ request: r, kind, quote, back }: { request: Re
           {quote.validUntil && <p className="mt-3 text-sm">العرض ساري حتى {formatDate(quote.validUntil)}.</p>}
           {quote.notes && <p className="mt-2 whitespace-pre-line text-sm">{quote.notes}</p>}
           <p className="mt-3 text-xs">
-            هذا العرض لأعمال الإصلاح والمواد فقط، ومنفصل عن رسوم زيارة المعاينة ({formatJOD(r.total)}){quote.visitFeeDeduction > 0 ? ' التي خُصمت منه كما هو موضح' : ''}. لا يبدأ التنفيذ إلا بعد موافقة العميل.
+            هذا العرض للأعمال والمواد المذكورة فقط، ومنفصل عن رسوم زيارة المعاينة ({formatJOD(r.total)}){quote.visitFeeDeduction > 0 ? ' التي خُصمت منه كما هو موضح' : ''}. لا يبدأ التنفيذ إلا بعد موافقة العميل.
           </p>
         </Section>
       )}

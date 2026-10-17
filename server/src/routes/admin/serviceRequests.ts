@@ -276,10 +276,36 @@ serviceRequestsAdminRouter.post(
   }),
 );
 
+/** مستندات المشروع (مخططات، تصاميم، تقارير، جداول كميات) — تظهر للعميل في طلبه */
+const docUpload = memoryUpload(20, 6).array('files', 6);
+
+serviceRequestsAdminRouter.post(
+  '/:id/documents',
+  uploadGuard(100),
+  docUpload,
+  asyncHandler(async (req, res) => {
+    const r = await load(req.params.id);
+    const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+    if (!files.length) throw badRequest('اختر ملفًا واحدًا على الأقل');
+    files.forEach((f) => validateFile(f, POLICIES.technical));
+    const title = z.string().trim().max(120).optional().parse(req.body?.title || undefined);
+    const stored = await validateAndStore(files, POLICIES.technical, 'services/documents');
+    const a = actor(req);
+    await prisma.$transaction(async (tx) => {
+      await tx.serviceRequestMedia.createMany({
+        data: stored.map((f) => ({ requestId: r.id, kind: f.kind, purpose: 'document', url: f.url, publicId: f.publicId, originalName: title ? `${title} — ${f.originalName}` : f.originalName })),
+      });
+      await logEvent(tx, r.id, { kind: 'note', note: `إرفاق مستندات للعميل: ${title ?? stored.map((f) => f.originalName).join('، ')}`, actorId: a.id, actorName: a.name });
+    });
+    await tellCustomer(r, `مستندات جديدة — طلب #${r.number}`, `أرفقنا ${stored.length} ملف${title ? ` (${title})` : ''} في طلبك. يمكنك تحميلها من حسابك.`);
+    ok(res, { saved: stored.length }, 201);
+  }),
+);
+
 serviceRequestsAdminRouter.delete(
   '/:id/media/:mediaId',
   asyncHandler(async (req, res) => {
-    const m = await prisma.serviceRequestMedia.findFirst({ where: { id: req.params.mediaId, requestId: req.params.id, purpose: 'report' } });
+    const m = await prisma.serviceRequestMedia.findFirst({ where: { id: req.params.mediaId, requestId: req.params.id, purpose: { in: ['report', 'document'] } } });
     if (!m) throw notFound('الصورة غير موجودة');
     await prisma.serviceRequestMedia.delete({ where: { id: m.id } });
     await deleteStored(m.publicId, m.kind);
@@ -290,6 +316,8 @@ serviceRequestsAdminRouter.delete(
 // ───── عروض أسعار الإصلاح ─────
 
 const quoteInput = z.object({
+  /** نوع العرض: دراسة، تصميم، تصنيع وتركيب، إصلاح… */
+  title: z.string().trim().max(120).default(''),
   items: z
     .array(z.object({ description: z.string().trim().min(2, 'اكتب وصف البند').max(400), qty: z.coerce.number().positive('الكمية أكبر من صفر').max(100_000), unitPrice: z.coerce.number().min(0).max(1_000_000) }))
     .min(1, 'أضف بندًا واحدًا على الأقل')
@@ -309,14 +337,14 @@ function quoteTotals(r: { total: Prisma.Decimal; visitFeePolicy: string }, input
   return { items, subtotal, visitFeeDeduction: r3(visitFeeDeduction), total: r3(subtotal - visitFeeDeduction) };
 }
 
-async function sendQuote(req: Request, r: { id: string; status: ServiceRequestStatus; customerId: string; phone: string; number: number }, quote: { id: string; number: number; total: Prisma.Decimal | number }) {
+async function sendQuote(req: Request, r: { id: string; status: ServiceRequestStatus; customerId: string; phone: string; number: number }, quote: { id: string; number: number; title: string; total: Prisma.Decimal | number }) {
   const a = actor(req);
   await prisma.$transaction(async (tx) => {
     await tx.serviceQuote.update({ where: { id: quote.id }, data: { status: 'SENT', sentAt: new Date() } });
-    await logEvent(tx, r.id, { kind: 'quote', note: `إرسال عرض سعر الإصلاح رقم ${quote.number} (${Number(quote.total)} د.أ)`, actorId: a.id, actorName: a.name });
+    await logEvent(tx, r.id, { kind: 'quote', note: `إرسال عرض السعر رقم ${quote.number}${quote.title ? ` (${quote.title})` : ''} — ${Number(quote.total)} د.أ`, actorId: a.id, actorName: a.name });
     await advanceStatus(tx, r, 'AWAITING_APPROVAL', a);
   });
-  await tellCustomer(r, `عرض سعر الإصلاح — طلب #${r.number}`, `أرسلنا لك عرض سعر بقيمة ${Number(quote.total)} د.أ. راجعه ووافق عليه أو ارفضه من حسابك.`);
+  await tellCustomer(r, `${quote.title || 'عرض سعر'} — طلب #${r.number}`, `أرسلنا لك عرض سعر${quote.title ? ` (${quote.title})` : ''} بقيمة ${Number(quote.total)} د.أ. راجعه ووافق عليه أو ارفضه من حسابك.`);
 }
 
 serviceRequestsAdminRouter.post(
@@ -329,7 +357,7 @@ serviceRequestsAdminRouter.post(
     const quote = await prisma.$transaction(async (tx) => {
       const last = await tx.serviceQuote.findFirst({ where: { requestId: r.id }, orderBy: { number: 'desc' }, select: { number: true } });
       return tx.serviceQuote.create({
-        data: { requestId: r.id, number: (last?.number ?? 0) + 1, items: t.items, subtotal: t.subtotal, visitFeeDeduction: t.visitFeeDeduction, total: t.total, notes: input.notes, validUntil: input.validUntil ? ammanToUtc(input.validUntil, '23:59') : null },
+        data: { requestId: r.id, number: (last?.number ?? 0) + 1, title: input.title, items: t.items, subtotal: t.subtotal, visitFeeDeduction: t.visitFeeDeduction, total: t.total, notes: input.notes, validUntil: input.validUntil ? ammanToUtc(input.validUntil, '23:59') : null },
       });
     });
     if (input.send) await sendQuote(req, r, quote);
@@ -349,7 +377,7 @@ serviceRequestsAdminRouter.patch(
     const t = quoteTotals(r, input);
     const saved = await prisma.serviceQuote.update({
       where: { id: q.id },
-      data: { items: t.items, subtotal: t.subtotal, visitFeeDeduction: t.visitFeeDeduction, total: t.total, notes: input.notes, validUntil: input.validUntil ? ammanToUtc(input.validUntil, '23:59') : null },
+      data: { title: input.title, items: t.items, subtotal: t.subtotal, visitFeeDeduction: t.visitFeeDeduction, total: t.total, notes: input.notes, validUntil: input.validUntil ? ammanToUtc(input.validUntil, '23:59') : null },
     });
     if (input.send) await sendQuote(req, r, saved);
     ok(res, { id: saved.id, ...t });

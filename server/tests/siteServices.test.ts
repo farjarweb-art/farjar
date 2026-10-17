@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { WATER_SLUG, seedServices } from '../prisma/seedServices';
+import { SIGNAGE_SLUG, WATER_SLUG, seedServices } from '../prisma/seedServices';
 import { app, createAdmin, createCustomer, nextWorkingDate, prisma, resetDb } from './helpers';
 
 type Detail = {
@@ -203,5 +203,91 @@ describe('رحلة العميل من الحجز حتى الإغلاق', () => {
     const res = await customer.post('/api/v1/site-services/requests').send({ ...base(), time: '14:00' });
     expect((await customer.post(`/api/v1/account/service-requests/${res.body.data.id}/cancel`)).status).toBe(200);
     expect((await customer.get('/api/v1/account/service-requests')).body.data[0].status).toBe('CANCELLED');
+  });
+});
+
+describe('اللافتات الإرشادية للمنشآت الصناعية', () => {
+  type SignDetail = {
+    service: { id: string; audiences: string[]; optionsLabel: string; deliverables: string[]; formFields: { key: string }[]; problems: { id: string; name: string; quoteRequired: boolean; description: string[] }[] };
+  };
+  let sign: SignDetail;
+  let customer: Awaited<ReturnType<typeof createCustomer>>;
+  const opt = (n: string) => sign.service.problems.find((p) => p.name.includes(n))!.id;
+  const PDF = Buffer.from('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF');
+
+  beforeAll(async () => {
+    sign = (await request(app).get(`/api/v1/site-services/${SIGNAGE_SLUG}`)).body.data;
+    customer = await createCustomer({ name: 'مصنع النور', phone: '0795556666' });
+  });
+
+  it('قسم مستقل لخدمات المنشآت بخمسة خيارات وحقول المشروع والمخرجات', () => {
+    expect(sign.service.audiences).toEqual(['BUSINESS']);
+    expect(sign.service.problems).toHaveLength(5);
+    expect(sign.service.problems.filter((p) => p.quoteRequired)).toHaveLength(2);
+    expect(sign.service.problems[0].description.length).toBeGreaterThan(2);
+    expect(sign.service.formFields.map((f) => f.key)).toEqual(['company', 'activity', 'size', 'signs', 'stages']);
+    expect(sign.service.deliverables.length).toBeGreaterThan(5);
+  });
+
+  it('سعر زيارة ثابت + خيارات "يحدد بعد مراجعة نطاق المشروع" بلا مبلغ', async () => {
+    const res = await quote({ serviceIds: [sign.service.id], zoneId: amman, problemIds: [opt('تعديل مواقع'), opt('دراسة متكاملة')] });
+    expect(res.body.data.lines.map((l: { kind: string; amount: number }) => [l.kind, l.amount])).toEqual([
+      ['visit', 35],
+      ['quote', 0],
+    ]);
+    expect(res.body.data.lines[1].label).toContain('يحدد بعد مراجعة نطاق المشروع');
+    expect(res.body.data.hasScopePricing).toBe(true);
+    expect(res.body.data.total).toBe(35);
+  });
+
+  it('الحقول المطلوبة تُتحقق، وعدة مراحل في طلب واحد مع مخطط PDF', async () => {
+    const base = {
+      serviceIds: [sign.service.id], zoneId: amman, problemIds: [opt('إضافة لافتات'), opt('تصنيع')], requestType: 'INSPECTION_REPORT',
+      name: 'مصنع النور', phone: '0795556666', clientType: 'FACTORY', propertyType: 'مصنع', area: 'سحاب', address: 'المدينة الصناعية، شارع 5',
+      description: 'نحتاج نظام لافتات واضح للمستودعات ومناطق التحميل', date: nextWorkingDate(3), time: '11:00', expectedTotal: 35, acceptTerms: true,
+    };
+    const missing = await customer.post('/api/v1/site-services/requests').send({ ...base, extra: { activity: 'صناعات غذائية', size: '3 مبانٍ', stages: ['الدراسة'] } });
+    expect(missing.status).toBe(400);
+    expect(missing.body.error.message).toContain('اسم المصنع أو الشركة');
+    const bad = await customer.post('/api/v1/site-services/requests').send({ ...base, extra: { company: 'النور', activity: 'غذائية', size: '3', stages: ['شيء آخر'] } });
+    expect(bad.status).toBe(400);
+
+    const res = await customer
+      .post('/api/v1/site-services/requests')
+      .field('data', JSON.stringify({ ...base, extra: { company: 'مصنع النور للصناعات الغذائية', activity: 'صناعات غذائية', size: '3 مبانٍ و6 أقسام', signs: '40', stages: ['الدراسة', 'التصميم', 'التصنيع والتركيب'] } }))
+      .attach('documents', PDF, { filename: 'site-plan.pdf', contentType: 'application/pdf' });
+    expect(res.status).toBe(201);
+    expect(res.body.data.message).toContain('المراحل المطلوبة: الدراسة، التصميم، التصنيع والتركيب');
+    const mine = (await customer.get(`/api/v1/account/service-requests/${res.body.data.id}`)).body.data;
+    expect(mine.extra.find((x: { key: string }) => x.key === 'company').value).toBe('مصنع النور للصناعات الغذائية');
+    expect(mine.media.some((m: { purpose: string; kind: string }) => m.purpose === 'customer_document' && m.kind === 'DOCUMENT')).toBe(true);
+
+    // الإدارة: مستندات للعميل + عروض أسعار مستقلة للدراسة والتصنيع
+    const id = res.body.data.id;
+    const doc = await admin.post(`/api/v1/admin/service-requests/${id}/documents`).field('title', 'مخطط توزيع اللافتات').attach('files', PDF, { filename: 'layout.pdf', contentType: 'application/pdf' });
+    expect(doc.status).toBe(201);
+    const study = await admin.post(`/api/v1/admin/service-requests/${id}/quotes`).send({ title: 'الدراسة', items: [{ description: 'دراسة متكاملة', qty: 1, unitPrice: 300 }], send: true });
+    const fab = await admin.post(`/api/v1/admin/service-requests/${id}/quotes`).send({ title: 'التصنيع والتركيب', items: [{ description: 'لافتة ألمنيوم', qty: 20, unitPrice: 25 }], deductVisitFee: false, send: true });
+    expect(fab.body.data.total).toBe(500);
+    expect((await customer.post(`/api/v1/account/service-requests/${id}/quotes/${study.body.data.id}/accept`)).status).toBe(200);
+    const after = (await customer.get(`/api/v1/account/service-requests/${id}`)).body.data;
+    expect(after.quotes.map((q: { title: string; status: string }) => [q.title, q.status])).toEqual([
+      ['الدراسة', 'ACCEPTED'],
+      ['التصنيع والتركيب', 'SENT'],
+    ]);
+    expect(after.media.some((m: { purpose: string; originalName: string }) => m.purpose === 'document' && m.originalName.startsWith('مخطط توزيع اللافتات'))).toBe(true);
+  });
+
+  it('المدير يوقف خيارًا، ويجعل سعر الزيارة "يحدد بعد مراجعة النطاق"', async () => {
+    const cat = (await admin.get('/api/v1/admin/site-services/catalog')).body.data;
+    const svc = cat.services.find((x: { slug: string }) => x.slug === SIGNAGE_SLUG);
+    const problems = svc.problems.map((p: { name: string }, i: number) => ({ ...p, active: i !== 2 }));
+    expect((await admin.put(`/api/v1/admin/site-services/services/${svc.id}/problems`).send(problems)).status).toBe(200);
+    expect((await admin.patch(`/api/v1/admin/site-services/services/${svc.id}`).send({ priceOnRequest: true })).status).toBe(200);
+    const d = (await request(app).get(`/api/v1/site-services/${SIGNAGE_SLUG}`)).body.data;
+    expect(d.service.problems).toHaveLength(4);
+    const q = await quote({ serviceIds: [svc.id], zoneId: amman, problemIds: [d.service.problems[0].id] });
+    expect(q.body.data.lines).toEqual([{ kind: 'quote', label: expect.stringContaining('يحدد بعد مراجعة نطاق المشروع'), amount: 0 }]);
+    expect(q.body.data.total).toBe(0);
   });
 });

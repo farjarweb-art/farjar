@@ -5,7 +5,7 @@ import { Breadcrumbs, Button, ButtonLink, ErrorState, Icon, Modal, Skeleton, Tag
 import { useToast } from '../../context/ToastContext';
 import { ApiError, api } from '../../lib/api';
 import { cx, formatDate, formatJOD } from '../../lib/format';
-import { CLIENT_TYPE_LABEL, POLICY_TEXT, QUOTE_STATUS_LABEL, STATUS_FLOW, STATUS_LABEL, TIER_LABEL, statusTone, type RequestCore, type SrStatus } from '../../lib/siteServices';
+import { CLIENT_TYPE_LABEL, POLICY_TEXT, isDocumentMedia, QUOTE_STATUS_LABEL, STATUS_FLOW, STATUS_LABEL, TIER_LABEL, statusTone, type RequestCore, type SrStatus } from '../../lib/siteServices';
 import { useAsync, useDocumentTitle } from '../../lib/useAsync';
 
 type Detail = RequestCore & {
@@ -59,6 +59,7 @@ export default function ServiceRequestDetail() {
 
   const idx = STATUS_FLOW.indexOf(r.status);
   const customerPhotos = r.media.filter((m) => m.purpose === 'customer');
+  const docs = r.media.filter(isDocumentMedia);
 
   return (
     <div className="container max-w-4xl py-8 md:py-12">
@@ -95,7 +96,9 @@ export default function ServiceRequestDetail() {
         <section key={qt.id} className={cx('mt-6 rounded-xl border p-5', qt.status === 'SENT' ? 'border-ink' : 'border-line')}>
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
-              <h2 className="text-lg">عرض سعر الإصلاح رقم {qt.number}</h2>
+              <h2 className="text-lg">
+                {qt.title ? `عرض سعر ${qt.title}` : 'عرض سعر الإصلاح'} <span className="text-muted">— رقم {qt.number}</span>
+              </h2>
               <p className="text-sm text-muted">
                 {qt.sentAt && formatDate(qt.sentAt)}
                 {qt.validUntil && ` · ساري حتى ${formatDate(qt.validUntil)}`}
@@ -120,7 +123,7 @@ export default function ServiceRequestDetail() {
             {qt.status === 'SENT' && (
               <>
                 <Button loading={busy === `a-${qt.id}`} onClick={() => act(`a-${qt.id}`, () => api.post(`/account/service-requests/${r.id}/quotes/${qt.id}/accept`), 'تمت الموافقة على عرض السعر — سنتواصل معك لبدء العمل')}>
-                  <Icon name="check" className="h-4 w-4" /> موافق — ابدأوا الإصلاح
+                  <Icon name="check" className="h-4 w-4" /> أوافق على العرض
                 </Button>
                 <Button variant="outline" onClick={() => setReject(qt.id)}>
                   رفض العرض
@@ -157,6 +160,9 @@ export default function ServiceRequestDetail() {
             <Row label="نوع العميل" value={`${CLIENT_TYPE_LABEL[r.clientType]} — ${r.propertyType}`} />
             <Row label="المشكلة" value={r.problems.map((p) => p.name).join('، ')} />
             <Row label="الأجهزة" value={r.devices.map((d) => d.name).join('، ')} />
+            {(r.extra ?? []).map((x) => (
+              <Row key={x.key} label={x.label} value={x.value} />
+            ))}
             <Row label="الوصف" value={r.description} />
           </dl>
           {customerPhotos.length > 0 && (
@@ -178,6 +184,25 @@ export default function ServiceRequestDetail() {
           <p className="text-sm text-muted">السعر ثابت كما وافقت عليه بتاريخ {formatDate(r.termsAcceptedAt)}. {POLICY_TEXT[r.visitFeePolicy]}</p>
         </div>
       </div>
+
+      {docs.length > 0 && (
+        <section className="mt-6 rounded-xl border border-line p-5">
+          <h2 className="text-lg">المستندات والمخططات</h2>
+          <ul className="mt-3 divide-y divide-line">
+            {docs.map((m) => (
+              <li key={m.id}>
+                <a href={m.url} target="_blank" rel="noopener noreferrer" className="flex min-h-[44px] items-center justify-between gap-3 py-2 text-[15px] hover:underline">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <Icon name="file" className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{m.originalName ?? 'ملف'}</span>
+                  </span>
+                  <span className="shrink-0 text-xs text-muted">{m.purpose === 'document' ? 'من فرجار جروب' : 'أرفقته أنت'}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="mt-6 rounded-xl border border-line p-5">
         <h2 className="text-lg">سجل الطلب</h2>

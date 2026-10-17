@@ -13,14 +13,17 @@ import { cx, formatDate, formatJOD, formatSlot, isValidPhone } from '../../lib/f
 import {
   CLIENT_TYPE_LABEL,
   PROPERTY_TYPES,
+  SCOPE_PRICED,
   REQUEST_TYPE_LABEL,
   TIER_LABEL,
   allowedDevices,
   type ClientType,
+  type FormField,
   type RequestCreated,
   type RequestType,
   type ServiceDetail,
   type VisitQuote,
+  normalizeDetail,
 } from '../../lib/siteServices';
 import { useAsync, useDocumentTitle } from '../../lib/useAsync';
 import { prepareWhatsAppWindow } from '../../lib/whatsapp';
@@ -72,7 +75,7 @@ const MAX_VIDEO_MB = 40;
 /** حجز زيارة معاينة/صيانة: الخدمة والمشكلة والأجهزة ← الموقع ← التفاصيل والموعد ← السعر والتأكيد */
 export default function ServiceBook() {
   const { slug = '' } = useParams();
-  const detail = useAsync(() => api.get<ServiceDetail>(`/site-services/${encodeURIComponent(slug)}`), [slug], `service:${slug}`);
+  const detail = useAsync(() => api.get<ServiceDetail>(`/site-services/${encodeURIComponent(slug)}`).then(normalizeDetail), [slug], `service:${slug}`);
   const d = detail.data;
   const s = d?.service;
   useDocumentTitle(s ? `حجز: ${s.name}` : 'حجز زيارة');
@@ -80,6 +83,8 @@ export default function ServiceBook() {
   const [v, setV] = useState<Vals>(EMPTY);
   const [photos, setPhotos] = useState<File[]>([]);
   const [video, setVideo] = useState<File | null>(null);
+  const [documents, setDocuments] = useState<File[]>([]);
+  const [extra, setExtra] = useState<Record<string, string | string[]>>({});
   const [step, setStep] = useState(0);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [quote, setQuote] = useState<VisitQuote | null>(null);
@@ -164,7 +169,7 @@ export default function ServiceBook() {
     const e: Record<string, string> = {};
     if (i === 0) {
       if (!v.requestType) e.requestType = 'اختر نوع الطلب';
-      if (needsProblems && !v.problemIds.length) e.problemIds = 'اختر المشكلة التي تواجهها (يمكنك اختيار أكثر من مشكلة)';
+      if (needsProblems && !v.problemIds.length) e.problemIds = s!.optionsLabel ? 'اختر خيارًا واحدًا على الأقل' : 'اختر المشكلة التي تواجهها (يمكنك اختيار أكثر من مشكلة)';
     }
     if (i === 1) {
       if (v.name.trim().length < 2) e.name = 'اكتب اسمك';
@@ -174,6 +179,12 @@ export default function ServiceBook() {
       if (!v.zoneId) e.zoneId = 'اختر المحافظة / المنطقة';
       if (!v.area.trim()) e.area = 'اكتب المنطقة أو الحي';
       if (v.address.trim().length < 5) e.address = 'اكتب العنوان بالتفصيل';
+      for (const f of s!.formFields) {
+        const val = extra[f.key];
+        const empty = Array.isArray(val) ? !val.length : !String(val ?? '').trim();
+        if (f.required && empty) e[`extra.${f.key}`] = `${f.label} مطلوب`;
+        else if (f.type === 'number' && !empty && !/^\d+(\.\d+)?$/.test(String(val).trim())) e[`extra.${f.key}`] = `"${f.label}" يجب أن يكون رقمًا`;
+      }
     }
     if (i === 2) {
       if (v.description.trim().length < 5) e.description = 'صف المشكلة باختصار (5 أحرف على الأقل)';
@@ -241,8 +252,9 @@ export default function ServiceBook() {
         time: v.time,
         expectedTotal: quote.total,
         acceptTerms: true,
+        extra,
       };
-      const res = await api.post<RequestCreated>('/site-services/requests', toFormData(payload, { photos, video }));
+      const res = await api.post<RequestCreated>('/site-services/requests', toFormData(payload, { photos, video, documents }));
       if (res.whatsapp.sent) wa.cancel();
       else wa.open(res.whatsapp.link);
       setDone(res);
@@ -260,7 +272,7 @@ export default function ServiceBook() {
         const key = err.field ? err.field.replace(/^details\./, '') : null;
         if (key) {
           setErrors({ [key]: err.message });
-          const i = stepOf(key);
+          const i = key.startsWith('extra.') ? 1 : stepOf(key);
           if (i < 3) goTo(i);
         }
         setSubmitError(err.message);
@@ -284,7 +296,8 @@ export default function ServiceBook() {
   }
 
   const err = (k: string) => errors[k] || undefined;
-  const clientTypes = d.clientTypes;
+  // خدمة للمنشآت فقط: لا يظهر خيار "فرد"
+  const clientTypes = s.audiences.includes('HOME') ? d.clientTypes : d.clientTypes.filter((c) => c.value !== 'INDIVIDUAL');
   const terms = [...d.generalTerms, ...(quote?.terms ?? (s.terms ? [s.terms] : []))];
 
   return (
@@ -325,10 +338,16 @@ export default function ServiceBook() {
 
                     {needsProblems && (
                       <fieldset data-field="problemIds">
-                        <legend className="label">ما المشكلة التي تواجهها؟ (يمكن اختيار أكثر من مشكلة)</legend>
-                        <div className="grid gap-2 sm:grid-cols-2">
+                        <legend className="label">{s.optionsLabel || 'ما المشكلة التي تواجهها؟ (يمكن اختيار أكثر من مشكلة)'}</legend>
+                        <div className={cx('grid gap-2', !s.problems.some((p) => p.description.length) && 'sm:grid-cols-2')}>
                           {s.problems.map((p) => (
-                            <Checkbox key={p.id} label={p.name} checked={v.problemIds.includes(p.id)} onChange={() => toggle('problemIds', p.id)} />
+                            <Checkbox
+                              key={p.id}
+                              label={p.quoteRequired ? `${p.name} — ${SCOPE_PRICED}` : p.name}
+                              description={p.description.length ? p.description.join(' · ') : undefined}
+                              checked={v.problemIds.includes(p.id)}
+                              onChange={() => toggle('problemIds', p.id)}
+                            />
                           ))}
                         </div>
                         {err('problemIds') && <p className="mt-1.5 text-sm text-danger">{err('problemIds')}</p>}
@@ -412,6 +431,17 @@ export default function ServiceBook() {
                         <Input label="أو اكتب نوعًا آخر" wrapperClassName="mt-3" value={PROPERTY_TYPES[v.clientType].includes(v.propertyType) ? '' : v.propertyType} maxLength={80} onChange={(e) => set('propertyType', e.target.value)} error={err('propertyType')} />
                       </div>
                     )}
+                    {s.formFields.length > 0 && (
+                      <section className="space-y-4 rounded-xl border border-line p-4">
+                        <h3 className="text-base">تفاصيل المشروع</h3>
+                        {s.formFields.map((f) => (
+                          <ExtraField key={f.key} field={f} value={extra[f.key]} error={err(`extra.${f.key}`)} onChange={(x) => {
+                            setExtra((e) => ({ ...e, [f.key]: x }));
+                            setErrors((e) => ({ ...e, [`extra.${f.key}`]: '' }));
+                          }} />
+                        ))}
+                      </section>
+                    )}
                     <div className="grid gap-4 sm:grid-cols-2">
                       <Select data-field="zoneId" label="المحافظة / المنطقة" value={v.zoneId} onChange={(e) => set('zoneId', e.target.value)} error={err('zoneId')}>
                         <option value="">اختر…</option>
@@ -437,7 +467,7 @@ export default function ServiceBook() {
                 {step === 2 && (
                   <div className="space-y-6">
                     <StepHeading stepKey={step} title="وصف المشكلة والموعد" />
-                    <Textarea data-field="description" label="وصف المشكلة" placeholder="مثال: رطوبة في جدار غرفة النوم بجانب الحمام، ظهرت قبل شهر وتزيد في الشتاء." value={v.description} maxLength={3000} rows={4} onChange={(e) => set('description', e.target.value)} error={err('description')} />
+                    <Textarea data-field="description" label={s.optionsLabel ? 'وصف المشكلة أو الهدف من الطلب' : 'وصف المشكلة'} placeholder={s.optionsLabel ? 'مثال: الزوار يضيعون بين المستودعات، ونريد لافتات واضحة لمناطق التحميل والمخارج.' : 'مثال: رطوبة في جدار غرفة النوم بجانب الحمام، ظهرت قبل شهر وتزيد في الشتاء.'} value={v.description} maxLength={3000} rows={4} onChange={(e) => set('description', e.target.value)} error={err('description')} />
                     <Input data-field="problemLocation" label="مكان ظهور المشكلة (اختياري)" placeholder="مثال: الحمام الرئيسي، سقف المطبخ، الطابق الأرضي" value={v.problemLocation} maxLength={300} onChange={(e) => set('problemLocation', e.target.value)} />
                     <div data-field="photos">
                       <FilePicker label="صور المشكلة" files={photos} onChange={setPhotos} max={6} optional hint="حتى 6 صور — تساعد الفني على التحضير." />
@@ -465,6 +495,9 @@ export default function ServiceBook() {
                       )}
                       {err('video') && <p className="mt-1.5 text-sm text-danger">{err('video')}</p>}
                     </div>
+                    <div data-field="documents">
+                      <FilePicker label="مخطط الموقع أو ملفات (صور أو PDF)" files={documents} onChange={setDocuments} max={5} allowPdf maxPdfMB={20} optional hint="مثل مخطط المنشأة، صور اللافتات أو المباني." />
+                    </div>
                     <div data-field="time">
                       <span className="label">الموعد المناسب للزيارة</span>
                       <SlotPicker endpoint="/site-services/slots" date={v.date} time={v.time} onChange={(date, time) => setV((x) => ({ ...x, date, time }))} error={err('time')} />
@@ -489,8 +522,8 @@ export default function ServiceBook() {
                       rows={[
                         ['الخدمة', quote?.services.map((x) => x.name).join('، ') ?? s.name],
                         ['نوع الطلب', v.requestType ? REQUEST_TYPE_LABEL[v.requestType] : ''],
-                        ['المشكلة', s.problems.filter((p) => v.problemIds.includes(p.id)).map((p) => p.name).join('، ')],
-                        ['الأجهزة', s.devices.filter((x) => v.deviceIds.includes(x.id)).map((x) => x.name).join('، ') || 'بدون أجهزة إضافية'],
+                        [s.optionsLabel ? 'الخدمات المطلوبة' : 'المشكلة', s.problems.filter((p) => v.problemIds.includes(p.id)).map((p) => p.name).join('، ')],
+                        ['الأجهزة', s.devices.length ? s.devices.filter((x) => v.deviceIds.includes(x.id)).map((x) => x.name).join('، ') || 'بدون أجهزة إضافية' : ''],
                       ]}
                     />
                     <ReviewSection
@@ -500,6 +533,7 @@ export default function ServiceBook() {
                         ['الاسم', v.name],
                         ['الهاتف', <span className="ltr">{v.phone}</span>],
                         ['نوع العميل', v.clientType ? `${CLIENT_TYPE_LABEL[v.clientType]} — ${v.propertyType}` : ''],
+                        ...s.formFields.map((f): [string, string] => [f.label, Array.isArray(extra[f.key]) ? (extra[f.key] as string[]).join('، ') : String(extra[f.key] ?? '')]),
                         ['المنطقة', zone ? `${zone.name} (${TIER_LABEL[zone.tier]}) — ${v.area}` : ''],
                         ['العنوان', v.address],
                       ]}
@@ -510,7 +544,7 @@ export default function ServiceBook() {
                       rows={[
                         ['الوصف', v.description],
                         ['المكان', v.problemLocation],
-                        ['المرفقات', photos.length || video ? `${photos.length} صورة${video ? ' + فيديو' : ''}` : ''],
+                        ['المرفقات', photos.length || video || documents.length ? [photos.length && `${photos.length} صورة`, video && 'فيديو', documents.length && `${documents.length} ملف`].filter(Boolean).join(' + ') : ''],
                         ['الموعد', v.date && v.time ? `${longDate(v.date)} — ${formatSlot(v.time)}` : ''],
                       ]}
                     />
@@ -549,10 +583,14 @@ export default function ServiceBook() {
               step < 3 && (
                 <section className="rounded-xl bg-subtle p-5">
                   <h2 className="text-lg">سعر الزيارة</h2>
-                  <p className="mt-2 text-[15px] text-muted">
-                    داخل عمّان <b className="text-ink">{formatJOD(s.priceInside)}</b> · خارجها <b className="text-ink">{formatJOD(s.priceOutside)}</b>
-                  </p>
-                  <p className="mt-2 text-sm text-muted">{needsProblems && !v.problemIds.length ? 'اختر المشكلة ثم المنطقة لترى السعر النهائي.' : 'اختر المنطقة في الخطوة التالية لترى السعر النهائي.'}</p>
+                  {s.priceOnRequest ? (
+                    <p className="mt-2 font-semibold">{SCOPE_PRICED}</p>
+                  ) : (
+                    <p className="mt-2 text-[15px] text-muted">
+                      داخل عمّان <b className="text-ink">{formatJOD(s.priceInside)}</b> · خارجها <b className="text-ink">{formatJOD(s.priceOutside)}</b>
+                    </p>
+                  )}
+                  <p className="mt-2 text-sm text-muted">{needsProblems && !v.problemIds.length ? (s.optionsLabel ? 'اختر الخدمات ثم المنطقة لترى السعر النهائي.' : 'اختر المشكلة ثم المنطقة لترى السعر النهائي.') : 'اختر المنطقة في الخطوة التالية لترى السعر النهائي.'}</p>
                   {quoteError && <p className="mt-2 text-sm text-danger">{quoteError}</p>}
                 </section>
               )
@@ -574,5 +612,52 @@ function Summary({ label, value }: { label: string; value: string }) {
       <dt className="text-muted">{label}</dt>
       <dd className="font-semibold">{value}</dd>
     </div>
+  );
+}
+
+/** حقل إضافي يحدده المدير (نص، رقم، اختيار، أو اختيارات متعددة) */
+function ExtraField({ field: f, value, onChange, error }: { field: FormField; value: string | string[] | undefined; onChange: (v: string | string[]) => void; error?: string }) {
+  const label = f.required ? f.label : `${f.label} (اختياري)`;
+  if (f.type === 'multiselect') {
+    const list = Array.isArray(value) ? value : [];
+    return (
+      <fieldset data-field={`extra.${f.key}`}>
+        <legend className="label">{label}</legend>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {(f.options ?? []).map((o) => (
+            <Checkbox key={o} label={o} checked={list.includes(o)} onChange={(on) => onChange(on ? [...list, o] : list.filter((x) => x !== o))} />
+          ))}
+        </div>
+        {error ? <p className="mt-1.5 text-sm text-danger">{error}</p> : f.hint && <p className="mt-1.5 text-[13px] text-muted">{f.hint}</p>}
+      </fieldset>
+    );
+  }
+  if (f.type === 'select') {
+    return (
+      <Select data-field={`extra.${f.key}`} label={label} value={typeof value === 'string' ? value : ''} onChange={(e) => onChange(e.target.value)} error={error} hint={f.hint}>
+        <option value="">اختر…</option>
+        {(f.options ?? []).map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
+        ))}
+      </Select>
+    );
+  }
+  if (f.type === 'textarea') {
+    return <Textarea data-field={`extra.${f.key}`} label={label} rows={3} maxLength={3000} value={typeof value === 'string' ? value : ''} onChange={(e) => onChange(e.target.value)} error={error} hint={f.hint} />;
+  }
+  return (
+    <Input
+      data-field={`extra.${f.key}`}
+      label={label}
+      inputMode={f.type === 'number' ? 'decimal' : undefined}
+      className={f.type === 'number' ? 'ltr text-start' : undefined}
+      maxLength={300}
+      value={typeof value === 'string' ? value : ''}
+      onChange={(e) => onChange(e.target.value)}
+      error={error}
+      hint={f.hint}
+    />
   );
 }

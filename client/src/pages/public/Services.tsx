@@ -116,6 +116,7 @@ export default function Services() {
 }
 
 function PriceTag({ s, dark }: { s: ServiceCard; dark?: boolean }) {
+  if (s.priceOnRequest) return <p className={cx('text-sm font-semibold', dark ? 'text-inverse-fg/80' : 'text-ink')}>سعر الزيارة: يحدد بعد مراجعة نطاق المشروع</p>;
   return (
     <p className={cx('text-sm', dark ? 'text-inverse-fg/70' : 'text-muted')}>
       زيارة داخل عمّان <b className={cx('font-display text-lg', dark ? 'text-inverse-fg' : 'text-ink')}>{formatJOD(s.priceInside)}</b>

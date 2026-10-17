@@ -55,7 +55,7 @@ siteServicesAdminRouter.get(
         priceInside: num(s.priceInside),
         priceOutside: num(s.priceOutside),
         travelFee: num(s.travelFee),
-        problems: s.problems.map((p) => ({ id: p.id, name: p.name, isOther: p.isOther, active: p.active, deviceIds: p.devices.map((d) => d.id) })),
+        problems: s.problems.map((p) => ({ id: p.id, name: p.name, description: p.description, quoteRequired: p.quoteRequired, isOther: p.isOther, active: p.active, deviceIds: p.devices.map((d) => d.id) })),
         devices: s.devices.map((l) => ({ deviceId: l.deviceId, included: l.included, fee: num(l.fee) })),
       })),
       devices: devices.map((d) => ({ ...d, fee: num(d.fee) })),
@@ -83,13 +83,39 @@ const serviceInput = z.object({
   featured: z.boolean().default(false),
   sortOrder: z.coerce.number().int().min(0).max(10_000).default(0),
   active: z.boolean().default(true),
+  optionsLabel: text(200).default(''),
+  priceOnRequest: z.boolean().default(false),
+  deliverables: text(3000).default(''),
+  formFields: z
+    .array(
+      z.object({
+        key: z.string().trim().regex(/^[a-z0-9_]{1,40}$/i, 'مفتاح الحقل غير صالح'),
+        label: text(160).min(2, 'اكتب عنوان الحقل'),
+        type: z.enum(['text', 'textarea', 'number', 'select', 'multiselect']),
+        options: z.array(text(120).min(1)).max(30).optional(),
+        required: z.boolean().default(false),
+        hint: text(200).optional(),
+        active: z.boolean().default(true),
+      }),
+    )
+    .max(20)
+    .superRefine((list, ctx) => {
+      const keys = new Set<string>();
+      list.forEach((f, i) => {
+        if (keys.has(f.key)) ctx.addIssue({ code: 'custom', path: [i, 'key'], message: 'مفتاح الحقل مكرر' });
+        keys.add(f.key);
+        if ((f.type === 'select' || f.type === 'multiselect') && !f.options?.length) ctx.addIssue({ code: 'custom', path: [i, 'options'], message: `أضف خيارات للحقل "${f.label}"` });
+      });
+    })
+    .default([]),
 });
 
-const priceFields = (s: { priceInside: unknown; priceOutside: unknown; travelFee: unknown; discountPercent: unknown }) => ({
+const priceFields = (s: { priceInside: unknown; priceOutside: unknown; travelFee: unknown; discountPercent: unknown; priceOnRequest: boolean }) => ({
   priceInside: s.priceInside,
   priceOutside: s.priceOutside,
   travelFee: s.travelFee,
   discountPercent: s.discountPercent,
+  priceOnRequest: s.priceOnRequest ? 1 : 0,
 });
 
 siteServicesAdminRouter.post(
@@ -147,7 +173,17 @@ siteServicesAdminRouter.put(
   '/services/:id/problems',
   asyncHandler(async (req, res) => {
     const list = z
-      .array(z.object({ id: z.string().max(40).optional(), name: text(160).min(2, 'اكتب اسم المشكلة'), isOther: z.boolean().default(false), active: z.boolean().default(true), deviceIds: z.array(z.string().max(40)).max(30).default([]) }))
+      .array(
+        z.object({
+          id: z.string().max(40).optional(),
+          name: text(160).min(2, 'اكتب اسم الخيار'),
+          description: text(3000).default(''),
+          quoteRequired: z.boolean().default(false),
+          isOther: z.boolean().default(false),
+          active: z.boolean().default(true),
+          deviceIds: z.array(z.string().max(40)).max(30).default([]),
+        }),
+      )
       .max(40)
       .parse(req.body);
     const s = await prisma.siteService.findFirst({ where: { id: req.params.id, deletedAt: null }, select: { id: true } });
@@ -158,7 +194,7 @@ siteServicesAdminRouter.put(
       const keep = list.filter((p) => p.id).map((p) => p.id!);
       await tx.serviceProblem.deleteMany({ where: { serviceId: s.id, id: { notIn: keep } } });
       for (const [i, p] of list.entries()) {
-        const data = { name: p.name, isOther: p.isOther, active: p.active, sortOrder: i };
+        const data = { name: p.name, description: p.description, quoteRequired: p.quoteRequired, isOther: p.isOther, active: p.active, sortOrder: i };
         const devicesSet = p.deviceIds.map((id) => ({ id }));
         const existing = p.id ? await tx.serviceProblem.findFirst({ where: { id: p.id, serviceId: s.id }, select: { id: true } }) : null;
         if (existing) await tx.serviceProblem.update({ where: { id: existing.id }, data: { ...data, devices: { set: devicesSet } } });

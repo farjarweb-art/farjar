@@ -2125,6 +2125,14 @@ model SiteService {
   terms           String               @default("")
   /// قسم رئيسي يُعرض بشكل مميز (مثل قسم التسربات والرطوبة)
   featured        Boolean              @default(false)
+  /// عنوان قائمة الخيارات عند الحجز (فارغ = "ما المشكلة التي تواجهها؟")
+  optionsLabel    String               @default("")
+  /// سعر الزيارة "يحدد بعد مراجعة نطاق المشروع" بدل رقم ثابت
+  priceOnRequest  Boolean              @default(false)
+  /// المخرجات والتقارير المتوقعة (سطر لكل بند)
+  deliverables    String               @default("")
+  /// حقول إضافية في نموذج الحجز: [{ key, label, type: text|textarea|number|select|multiselect, options?, required?, hint? }]
+  formFields      Json                 @default("[]")
   sortOrder       Int                  @default(0)
   active          Boolean              @default(true)
   createdAt       DateTime             @default(now())
@@ -2140,15 +2148,19 @@ model SiteService {
 
 /// المشكلات التي يختار منها العميل داخل الخدمة (مثل رطوبة الجدران)
 model ServiceProblem {
-  id        String          @id @default(cuid())
-  serviceId String
-  name      String
+  id            String          @id @default(cuid())
+  serviceId     String
+  name          String
   /// "مشكلة أخرى": تعرض كل أجهزة الخدمة ويكتب العميل وصفها
-  isOther   Boolean         @default(false)
-  sortOrder Int             @default(0)
-  active    Boolean         @default(true)
-  service   SiteService     @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  devices   ServiceDevice[]
+  isOther       Boolean         @default(false)
+  /// تفاصيل الخيار (سطر لكل بند)
+  description   String          @default("")
+  /// يُسعَّر بعرض سعر مستقل بعد مراجعة نطاق المشروع
+  quoteRequired Boolean         @default(false)
+  sortOrder     Int             @default(0)
+  active        Boolean         @default(true)
+  service       SiteService     @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  devices       ServiceDevice[]
 
   @@index([serviceId])
 }
@@ -2234,6 +2246,8 @@ model ServiceRequest {
   services        Json
   problems        Json                 @default("[]")
   devices         Json                 @default("[]")
+  /// إجابات الحقول الإضافية: [{ key, label, value }]
+  extra           Json                 @default("[]")
   /// بنود السعر المعتمدة وقت الحجز — لا تتغير بتعديل الأسعار لاحقًا
   priceLines      Json
   total           Decimal              @db.Decimal(10, 3)
@@ -2311,6 +2325,8 @@ model ServiceQuote {
   id                String             @id @default(cuid())
   requestId         String
   number            Int
+  /// نوع العرض (دراسة، تصميم، تصنيع وتركيب، إصلاح…)
+  title             String             @default("")
   /// [{ description, qty, unitPrice }]
   items             Json
   subtotal          Decimal            @db.Decimal(12, 3)

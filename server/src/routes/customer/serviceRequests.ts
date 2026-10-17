@@ -54,7 +54,8 @@ customerServiceRequestsRouter.get(
       statusLabel: SR_STATUS_AR[r.status],
       requestTypeLabel: REQUEST_TYPE_AR[r.requestType],
       canCancel: CUSTOMER_CANCELLABLE.includes(r.status),
-      media: media.filter((m) => m.purpose === 'customer' || report?.published),
+      // صور العميل وملفاته، مستندات المشروع التي شاركتها الإدارة، وصور التقرير بعد إرساله
+      media: media.filter((m) => m.purpose === 'customer' || m.purpose === 'customer_document' || m.purpose === 'document' || (m.purpose === 'report' && report?.published)),
       // اسم الموظف لا يظهر للعميل
       events: events.map((e) => ({ id: e.id, kind: e.kind, toStatus: e.toStatus, toStatusLabel: e.toStatus ? SR_STATUS_AR[e.toStatus] : null, note: e.kind === 'work' || e.kind === 'schedule' ? e.note : null, createdAt: e.createdAt })),
       report: report?.published ? report : null,
@@ -95,8 +96,8 @@ customerServiceRequestsRouter.post(
       const done = await tx.serviceQuote.updateMany({ where: { id: q.id, status: 'SENT' }, data: { status: accept ? 'ACCEPTED' : 'REJECTED', respondedAt: new Date() } });
       if (!done.count) throw badRequest('تم الرد على عرض السعر هذا مسبقًا');
       let status = r.status;
+      // عروض الأسعار مستقلة (دراسة، تصميم، تصنيع وتركيب…): قبول أحدها لا يلغي غيره
       if (accept) {
-        await tx.serviceQuote.updateMany({ where: { requestId: r.id, status: 'SENT', id: { not: q.id } }, data: { status: 'REJECTED', respondedAt: new Date() } });
         if (r.status !== 'CANCELLED' && r.status !== 'CLOSED') {
           await tx.serviceRequest.update({ where: { id: r.id }, data: { status: 'REPAIR_APPROVED' } });
           status = 'REPAIR_APPROVED';
@@ -106,7 +107,7 @@ customerServiceRequestsRouter.post(
         kind: accept ? 'status' : 'quote',
         from: accept ? r.status : null,
         to: accept ? status : null,
-        note: `${accept ? 'وافق العميل على' : 'رفض العميل'} عرض سعر الإصلاح رقم ${q.number} (${Number(q.total)} د.أ)${note ? ` — ${note}` : ''}`,
+        note: `${accept ? 'وافق العميل على' : 'رفض العميل'} عرض السعر رقم ${q.number}${q.title ? ` (${q.title})` : ''} — ${Number(q.total)} د.أ${note ? ` — ${note}` : ''}`,
         actorName: r.name,
       });
       return { status, quoteStatus: accept ? 'ACCEPTED' : 'REJECTED' };

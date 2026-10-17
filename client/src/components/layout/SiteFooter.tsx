@@ -5,6 +5,7 @@ import { BRAND } from '../../lib/brand';
 import { displayPhone } from '../../lib/format';
 import { Icon, type IconName } from '../ui';
 import { Logo } from './Logo';
+import { VisitorCount } from './VisitorCount';
 import { useI18n, type MessageKey } from '../../lib/i18n';
 
 const SERVICES: { to: string; key: MessageKey }[] = [
@@ -97,7 +98,10 @@ export function SiteFooter() {
           <span>
             © <span className="num">{year}</span> {lang === 'ar' ? `${BRAND.ar} (${BRAND.en})` : BRAND.en}. {t('footer.rights')}
           </span>
-          <span>{t('footer.city')}</span>
+          <span className="flex flex-wrap items-center gap-3">
+            <VisitorCount className="border-inverse-fg/15 text-xs text-inverse-fg/60" />
+            <span>{t('footer.city')}</span>
+          </span>
         </div>
       </div>
     </footer>

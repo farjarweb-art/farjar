@@ -4,6 +4,7 @@ import { Icon, SectionHeading } from '../../components/ui';
 import { PRODUCT_GRID, ProductCard, ProductGridSkeleton, productImage } from '../../components/store/ProductCard';
 
 import { WorkFigure } from '../../components/work/WorkFigure';
+import { VisitorCount } from '../../components/layout/VisitorCount';
 import { useSite } from '../../context/SiteContext';
 import { api } from '../../lib/api';
 import { BRAND } from '../../lib/brand';
@@ -298,6 +299,7 @@ function Hero() {
       <div className="container relative grid gap-12 py-12 md:py-16 lg:grid-cols-12 lg:gap-10 lg:py-20">
         <div className="min-w-0 lg:col-span-6 xl:col-span-6">
           <p className="eyebrow anim-rise !text-inverse-fg/60">{BRAND.ar} — حلول صناعية ومقاولات</p>
+          <VisitorCount className="mt-4 border-inverse-fg/15 bg-inverse-2 text-inverse-fg/80" />
           <h1 className="anim-rise mt-5 text-[2rem] leading-[1.3] text-inverse-fg [animation-delay:60ms] sm:text-[2.5rem] xl:text-[3rem]">
             {settings.heroTitle}
           </h1>

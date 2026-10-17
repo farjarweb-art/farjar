@@ -2024,3 +2024,12 @@ model FarjarFeeAllocation {
   @@index([paymentId])
   @@index([vendorOrderId])
 }
+
+/**
+ * عدّادات عامة بسيطة (مثل عدد زوار الموقع) — تُزاد ذريًا في قاعدة البيانات
+ */
+model Counter {
+  key       String   @id
+  value     Int      @default(0)
+  updatedAt DateTime @updatedAt
+}

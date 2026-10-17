@@ -2138,6 +2138,8 @@ export const EN_TEXT: Record<string, string> = {
   "اختر صورة أو فيديو": "Choose a photo or video",
   // ── مالية الموردين ──
   "مالية الموردين": "Supplier finance",
+  "عدد الزوار": "Visitors",
+  "عدد زوار الموقع": "Site visitors",
   "تابعنا": "Follow us",
   "المبلغ المستحق لفرجار · Amount Due to Farjar": "Amount Due to Farjar",
   "اضغط لعرض الطلبات التي كوّنت هذا المبلغ": "Tap to see the orders behind this amount",

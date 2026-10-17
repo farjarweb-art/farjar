@@ -498,6 +498,8 @@ export type DashboardStats = {
   expiringContracts: number;
   /** منتجات موردين بانتظار المراجعة */
   pendingProducts: number;
+  /** طلبات معاينة/صيانة جديدة */
+  newServiceRequests?: number;
   paymentProofs?: number;
   pendingSuppliers?: number;
   /** التوصيل والتحصيل والعقود (اليوم/الشهر) */

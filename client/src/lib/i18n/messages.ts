@@ -7,6 +7,7 @@ export const MESSAGES = {
   // ── الهيكل ──
   'nav.home': ['الرئيسية', 'Home'],
   'nav.bookings': ['الحجوزات', 'Bookings'],
+  'nav.services': ['المعاينات', 'Inspections'],
   'nav.store': ['السوق', 'Marketplace'],
   'nav.work': ['أعمالنا', 'Our work'],
   'nav.corporate': ['الشركات', 'Companies'],

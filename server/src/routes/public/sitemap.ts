@@ -7,6 +7,7 @@ import { publicProductWhere } from '../../services/catalog.service';
 const STATIC_PAGES: [string, number][] = [
   ['/', 1],
   ['/store', 0.9],
+  ['/services', 0.9],
   ['/store/suppliers', 0.8],
   ['/bookings', 0.8],
   ['/corporate', 0.8],
@@ -25,9 +26,10 @@ const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
  * و /sitemap-products.xml (هذا، عبر rewrite).
  */
 export async function sitemap(_req: Request, res: Response, opts: { includePages?: boolean } = { includePages: true }) {
-  const [products, vendors] = await Promise.all([
+  const [products, vendors, services] = await Promise.all([
     prisma.product.findMany({ where: publicProductWhere(), select: { slug: true, updatedAt: true }, orderBy: { updatedAt: 'desc' }, take: 5000 }),
     prisma.vendor.findMany({ where: { active: true, status: 'APPROVED', isHouse: false }, select: { slug: true, updatedAt: true }, take: 2000 }),
+    prisma.siteService.findMany({ where: { active: true, deletedAt: null }, select: { slug: true, updatedAt: true } }),
   ]);
   const base = env.siteUrl;
   const url = (path: string, priority: number, lastmod?: Date) =>
@@ -38,6 +40,7 @@ export async function sitemap(_req: Request, res: Response, opts: { includePages
     ...(opts.includePages ? STATIC_PAGES.map(([p, pr]) => url(p, pr)) : []),
     ...products.map((p) => url(`/store/${encodeURIComponent(p.slug)}`, 0.7, p.updatedAt)),
     ...vendors.map((v) => url(`/store/vendor/${encodeURIComponent(v.slug)}`, 0.6, v.updatedAt)),
+    ...services.map((x) => url(`/services/${encodeURIComponent(x.slug)}`, 0.8, x.updatedAt)),
     '</urlset>',
   ].join('\n');
   res.set('Content-Type', 'application/xml; charset=utf-8').set('Cache-Control', 'public, max-age=3600').send(xml);

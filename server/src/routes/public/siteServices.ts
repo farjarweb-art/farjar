@@ -239,7 +239,7 @@ siteServicesRouter.post(
     emitAdmin({ type: 'service_request.created', id: created.id, title: `طلب معاينة #${created.number} — ${price.services[0].name}` });
     await audit({ actorType: 'customer', actorId: req.auth!.sub, action: 'create', entity: 'service_request', entityId: created.id });
 
-    ok(res, { id: created.id, number: created.number, ref: created.ref, status: created.status, total: price.total, scheduledAt: created.scheduledAt, whatsapp: { link: wa.link, sent: wa.sent } }, 201);
+    ok(res, { id: created.id, number: created.number, ref: created.ref, status: created.status, total: price.total, scheduledAt: created.scheduledAt, message: text, whatsapp: { link: wa.link, sent: wa.sent } }, 201);
   }),
 );
 

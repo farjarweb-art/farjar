@@ -21,10 +21,12 @@ type Props = {
   error?: string;
   /** زيادته تعيد تحميل الأوقات (بعد تعارض من السيرفر) */
   reloadKey?: number;
+  /** مصدر الأوقات (الافتراضي: حجوزات الأعمال) */
+  endpoint?: string;
 };
 
 /** اختيار اليوم (شريط أيام أفقي) ثم الوقت من الأوقات المتاحة */
-export function SlotPicker({ date, time, onChange, error, reloadKey = 0 }: Props) {
+export function SlotPicker({ date, time, onChange, error, reloadKey = 0, endpoint = '/bookings/slots' }: Props) {
   const { settings } = useSite();
   const today = todayAmman();
   const days = useMemo(
@@ -54,7 +56,7 @@ export function SlotPicker({ date, time, onChange, error, reloadKey = 0 }: Props
     setLoading(true);
     setLoadError(null);
     api
-      .get<DaySlots>('/bookings/slots', { date })
+      .get<DaySlots>(endpoint, { date })
       .then((d) => {
         if (!live) return;
         setData(d);
@@ -67,7 +69,7 @@ export function SlotPicker({ date, time, onChange, error, reloadKey = 0 }: Props
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date, reloadKey, retry]);
+  }, [date, reloadKey, retry, endpoint]);
 
   // إبقاء اليوم المختار ظاهرًا في الشريط
   useEffect(() => {

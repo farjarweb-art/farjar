@@ -24,6 +24,10 @@ const P = {
   Customers: () => import('./Customers'),
   CustomerDetail: () => import('./CustomerDetail'),
   Technicians: () => import('./Technicians'),
+  ServiceRequests: () => import('./ServiceRequests'),
+  ServiceRequestDetail: () => import('./ServiceRequestDetail'),
+  ServiceRequestPrint: () => import('./ServiceRequestPrint'),
+  SiteServices: () => import('./SiteServices'),
   Settings: () => import('./Settings'),
   Logs: () => import('./Logs'),
   Newsletter: () => import('./Newsletter'),
@@ -75,6 +79,10 @@ const SupplierFinanceDetail = lazy(P.SupplierFinanceDetail);
 const Customers = lazy(P.Customers);
 const CustomerDetail = lazy(P.CustomerDetail);
 const Technicians = lazy(P.Technicians);
+const ServiceRequests = lazy(P.ServiceRequests);
+const ServiceRequestDetail = lazy(P.ServiceRequestDetail);
+const ServiceRequestPrint = lazy(P.ServiceRequestPrint);
+const SiteServices = lazy(P.SiteServices);
 const Settings = lazy(P.Settings);
 const Logs = lazy(P.Logs);
 const Newsletter = lazy(P.Newsletter);
@@ -204,6 +212,9 @@ const ADMIN_PREFETCH: [RegExp, () => Promise<unknown>, boolean][] = [
   [/^\/admin\/customers\/?$/, P.Customers, true],
   [/^\/admin\/customers\/[^/]+\/?$/, P.CustomerDetail, false],
   [/^\/admin\/technicians\/?$/, P.Technicians, true],
+  [/^\/admin\/service-requests\/?$/, P.ServiceRequests, true],
+  [/^\/admin\/service-requests\/[^/]+$/, P.ServiceRequestDetail, false],
+  [/^\/admin\/site-services/, P.SiteServices, false],
   [/^\/admin\/settings\/?$/, P.Settings, true],
   [/^\/admin\/logs\/?$/, P.Logs, true],
   [/^\/admin\/newsletter\/?$/, P.Newsletter, false],
@@ -241,6 +252,10 @@ export default function AdminApp() {
           <Route index element={<Home />} />
           <Route path="bookings" element={s(<Bookings />)} />
           <Route path="bookings/:id" element={s(<BookingDetail />)} />
+          <Route path="service-requests" element={s(<ServiceRequests />)} />
+          <Route path="service-requests/:id" element={s(<ServiceRequestDetail />)} />
+          <Route path="service-requests/:id/print" element={s(<ServiceRequestPrint />)} />
+          <Route path="site-services" element={s(<SiteServices />)} />
           <Route path="orders" element={s(<Orders />)} />
           <Route path="orders/:id" element={s(<OrderDetail />)} />
           <Route path="products" element={s(<Products />)} />

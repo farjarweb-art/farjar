@@ -29,6 +29,8 @@ const NAV: { group?: string; items: NavItem[] }[] = [
   {
     group: 'العمليات',
     items: [
+      { to: '/admin/service-requests', label: 'المعاينات والصيانة', badge: (s) => s.newServiceRequests ?? 0, perm: ['services.requests'] },
+      { to: '/admin/site-services', label: 'الخدمات والأسعار', perm: ['services.requests', 'services.manage'] },
       { to: '/admin/bookings', label: 'الحجوزات', badge: (s) => s.newBookings, perm: ['bookings.manage'] },
       { to: '/admin/orders', label: 'طلبات المتجر', badge: (s) => s.newOrders, perm: ['orders.view'] },
       { to: '/admin/corporate', label: 'طلبات الشركات', badge: (s) => s.pendingCorporate, perm: ['corporate.manage'] },

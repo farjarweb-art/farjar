@@ -468,6 +468,17 @@
   tr {
     break-inside: avoid;
   }
+  /* التقارير الفنية وعروض الأسعار: A4 طولي */
+  @page doc {
+    size: A4 portrait;
+    margin: 14mm;
+  }
+  .print-doc {
+    page: doc;
+  }
+  .print-doc section {
+    break-inside: avoid;
+  }
 }
 .print-only {
   display: none;

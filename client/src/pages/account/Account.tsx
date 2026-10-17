@@ -18,6 +18,7 @@ import {
 } from '../../components/ui';
 import { DeliveryStatusTag } from '../../components/delivery/Tags';
 import { RfqTab } from './RfqList';
+import { ServiceRequestsTab } from './ServiceRequests';
 import { RewardsTab } from './RewardsTab';
 import { DeliveryTimeline } from '../../components/delivery/Timeline';
 import { NotificationsBell } from '../../components/NotificationsBell';
@@ -131,9 +132,10 @@ type Overview = {
 const PROGRESS: RequestStatus[] = ['NEW', 'UNDER_REVIEW', 'PRICED', 'CONFIRMED', 'IN_PROGRESS', 'COMPLETED'];
 const CONTRACT_STATUS: Record<OContract['status'], string> = { ACTIVE: 'ساري', EXPIRED: 'منتهي', CANCELLED: 'ملغي' };
 
-type TabKey = 'bookings' | 'orders' | 'rfqs' | 'corporate' | 'tenders' | 'files' | 'payments' | 'rewards';
+type TabKey = 'bookings' | 'services' | 'orders' | 'rfqs' | 'corporate' | 'tenders' | 'files' | 'payments' | 'rewards';
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'bookings', label: 'الحجوزات' },
+  { key: 'services', label: 'المعاينات والصيانة' },
   { key: 'orders', label: 'الطلبات' },
   { key: 'rfqs', label: 'عروض الأسعار' },
   { key: 'corporate', label: 'الشركات والعقود' },
@@ -170,6 +172,7 @@ function AccountView({ customer }: { customer: CustomerMe }) {
 
   const counts: Record<TabKey, number> = {
     bookings: data?.bookings.length ?? 0,
+    services: 0,
     orders: data?.orders.length ?? 0,
     rfqs: 0,
     corporate: (data?.corporate.length ?? 0) + (data?.contracts.length ?? 0),
@@ -256,6 +259,7 @@ function AccountView({ customer }: { customer: CustomerMe }) {
           ) : data ? (
             <>
               {tab === 'bookings' && <BookingsTab items={data.bookings} />}
+              {tab === 'services' && <ServiceRequestsTab />}
               {tab === 'orders' && <OrdersTab items={data.orders} />}
               {tab === 'corporate' && <CorporateTab items={data.corporate} contracts={data.contracts} />}
               {tab === 'tenders' && <TendersTab />}

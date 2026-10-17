@@ -51,6 +51,15 @@ export default function Bookings() {
       />
 
       <div className="container py-10 md:py-14">
+        <Link to="/services" className="group mb-8 flex flex-wrap items-center justify-between gap-4 rounded-xl bg-inverse p-5 text-inverse-fg md:p-6">
+          <span>
+            <span className="block font-display text-xl font-semibold text-inverse-fg">معاينات وفحوصات وصيانة بسعر زيارة ثابت</span>
+            <span className="mt-1 block text-sm text-inverse-fg/70">كشف التسربات والرطوبة، التشققات، الكهرباء، فحص العقار، المصانع والمستودعات — واعرف السعر النهائي قبل الحجز.</span>
+          </span>
+          <span className="inline-flex min-h-[44px] items-center gap-2 rounded-full bg-primary px-5 font-semibold text-primary-fg">
+            تصفح الخدمات <Icon name="arrowLeft" className="h-4 w-4" />
+          </span>
+        </Link>
         <div className="grid gap-10 lg:grid-cols-[1fr_21rem] lg:gap-14">
           <ul className="border-t border-line" data-reveal-group>
             {TYPES.map(({ type, text, needs }, i) => (

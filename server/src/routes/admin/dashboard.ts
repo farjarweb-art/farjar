@@ -97,6 +97,8 @@ dashboardRouter.get(
       /** إثباتات دفع الموردين بانتظار المراجعة + موردون بانتظار الاعتماد (شارات السوق الصناعي) */
       paymentProofs: await prisma.marketInvoice.count({ where: { status: 'PENDING', proofStatus: 'SUBMITTED' } }),
       pendingSuppliers: await prisma.vendor.count({ where: { status: 'PENDING' } }),
+      /** طلبات معاينة/صيانة جديدة (شارة القائمة) */
+      newServiceRequests: await prisma.serviceRequest.count({ where: { deletedAt: null, status: 'NEW' } }),
       upcoming,
       activity,
       ops,

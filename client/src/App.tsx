@@ -10,6 +10,11 @@ import Home from './pages/public/Home';
 // كل الصفحات تُحمَّل عند الطلب؛ نفس الدوال تُستخدم للتحميل المسبق (lib/prefetch)
 const pages = {
   Bookings: () => import('./pages/public/Bookings'),
+  Services: () => import('./pages/public/Services'),
+  ServiceDetail: () => import('./pages/public/ServiceDetail'),
+  ServiceBook: () => import('./pages/public/ServiceBook'),
+  ServiceRequestDetail: () => import('./pages/account/ServiceRequestDetail'),
+  ServiceRequestPrint: () => import('./pages/account/ServiceRequestPrint'),
   BookingForm: () => import('./pages/public/BookingForm'),
   Corporate: () => import('./pages/public/Corporate'),
   CorporateForm: () => import('./pages/public/CorporateForm'),
@@ -41,6 +46,11 @@ const pages = {
 
 // الصفحات العامة — تحميل عند الطلب
 const Bookings = lazy(pages.Bookings);
+const Services = lazy(pages.Services);
+const ServiceDetail = lazy(pages.ServiceDetail);
+const ServiceBook = lazy(pages.ServiceBook);
+const ServiceRequestDetail = lazy(pages.ServiceRequestDetail);
+const ServiceRequestPrint = lazy(pages.ServiceRequestPrint);
 const BookingForm = lazy(pages.BookingForm);
 const Corporate = lazy(pages.Corporate);
 const CorporateForm = lazy(pages.CorporateForm);
@@ -83,6 +93,10 @@ const ROUTE_PREFETCH: [RegExp, () => Promise<unknown>, boolean][] = [
   [/^\/account\/rfq\//, pages.RfqDetail, false],
   [/^\/store\/[^/]+$/, pages.ProductPage, true],
   [/^\/store\/?$/, pages.Store, true],
+  [/^\/services\/[^/]+\/book/, pages.ServiceBook, false],
+  [/^\/services\/[^/]+$/, pages.ServiceDetail, true],
+  [/^\/services\/?$/, pages.Services, true],
+  [/^\/account\/services\//, pages.ServiceRequestDetail, false],
   [/^\/bookings\/[^/]+$/, pages.BookingForm, true],
   [/^\/bookings\/?$/, pages.Bookings, true],
   [/^\/corporate\/[^/]+$/, pages.CorporateForm, false],
@@ -135,10 +149,23 @@ export default function App() {
             </Suspense>
           }
         />
+        {/* المستندات القابلة للطباعة (تقرير فني / عرض سعر) بدون رأس وتذييل الموقع */}
+        <Route element={<RequireCustomer />}>
+          <Route
+            path="/account/services/:id/print"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <ServiceRequestPrint />
+              </Suspense>
+            }
+          />
+        </Route>
         <Route element={<PublicLayout />}>
           <Route index element={<Home />} />
           {/* التصفح مفتوح للجميع */}
           <Route path="bookings" element={<Bookings />} />
+          <Route path="services" element={<Services />} />
+          <Route path="services/:slug" element={<ServiceDetail />} />
           <Route path="corporate" element={<Corporate />} />
           <Route path="store" element={<Store />} />
           <Route path="store/vendor/:slug" element={<VendorStore />} />
@@ -159,6 +186,8 @@ export default function App() {
           {/* الحجز والطلب والحساب للعملاء المسجّلين فقط */}
           <Route element={<RequireCustomer />}>
             <Route path="bookings/:type" element={<BookingForm />} />
+            <Route path="services/:slug/book" element={<ServiceBook />} />
+            <Route path="account/services/:id" element={<ServiceRequestDetail />} />
             <Route path="corporate/:type" element={<CorporateForm />} />
             <Route path="cart" element={<Cart />} />
             <Route path="checkout" element={<Checkout />} />

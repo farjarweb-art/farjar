@@ -35,7 +35,7 @@ services:
         generateValue: true
       # رابط الواجهة (للـ CORS) — عدّله إن تغيّر اسم الخدمة أو أضفت دومينًا خاصًا (افصل بفاصلة)
       - key: CLIENT_URL
-        value: https://verjar-web-y37y.onrender.com
+        value: https://farjarcorp.online,https://www.farjarcorp.online,https://verjar-web-y37y.onrender.com
       - key: PUBLIC_API_URL
         value: https://verjar-api-tpfx.onrender.com
       # الواجهة تمرر /api عبر rewrite فتكون الكوكيز من نفس الدومين

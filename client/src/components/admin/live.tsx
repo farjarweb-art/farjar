@@ -38,6 +38,8 @@ const TYPE_PREFIX: Record<AdminEvent['type'], string> = {
   'rfq.awarded': 'ترسية طلب',
   'supplier.pending': 'مورد بانتظار المراجعة',
   'invoice.proof': 'إثبات دفع جديد',
+  'service_request.created': 'طلب معاينة جديد',
+  'service_request.updated': 'تحديث طلب معاينة',
 };
 
 export function LiveProvider({ children }: { children: ReactNode }) {

@@ -1,0 +1,353 @@
+import { Prisma } from '@prisma/client';
+import { Router, type Request } from 'express';
+import { z } from 'zod';
+import { audit } from '../../lib/audit';
+import { asyncHandler, badRequest, notFound, ok } from '../../lib/http';
+import { randomSuffix, slugify } from '../../lib/ids';
+import { prisma } from '../../lib/prisma';
+
+/**
+ * كتالوج الخدمات والمعاينات (لوحة الإدارة): الخدمات، المشكلات، الأجهزة، المناطق، الزيارات المجمعة.
+ * كل تغيير في سعر يُسجَّل في سجل الأسعار (من غيّر، ماذا، ومتى). الحجوزات المؤكدة تحفظ أسعارها ولا تتأثر.
+ */
+export const siteServicesAdminRouter = Router();
+
+const D = (n: number) => new Prisma.Decimal(n);
+const num = (d: Prisma.Decimal | null | undefined) => (d == null ? null : Number(d));
+const money = z.coerce.number({ invalid_type_error: 'أدخل مبلغًا صحيحًا' }).min(0, 'المبلغ لا يكون سالبًا').max(100_000);
+const text = (max: number) => z.string().trim().max(max);
+const AUDIENCES = ['HOME', 'BUSINESS'] as const;
+const REQUEST_TYPES = ['INSPECTION', 'INSPECTION_REPORT', 'DIAGNOSIS', 'REPAIR_QUOTE', 'REPAIR', 'PREVENTIVE', 'CONTRACT'] as const;
+
+/** يسجّل تغييرات الأسعار فقط (قيم قبل/بعد) */
+async function logPrices(req: Request, target: string, id: string, name: string, before: Record<string, unknown> | null, after: Record<string, unknown>) {
+  const changes: Record<string, { from: number | null; to: number | null }> = {};
+  for (const [k, v] of Object.entries(after)) {
+    const from = before ? (before[k] == null ? null : Number(before[k])) : null;
+    const to = v == null ? null : Number(v);
+    if (from !== to) changes[k] = { from, to };
+  }
+  if (!Object.keys(changes).length) return;
+  await audit({ actorType: 'admin', actorId: req.auth!.sub, action: before ? 'price_change' : 'price_set', entity: 'service_price', entityId: id, meta: { target, name, changes, by: req.auth!.name } });
+}
+
+/** كل الكتالوج دفعة واحدة لصفحة الإدارة */
+siteServicesAdminRouter.get(
+  '/catalog',
+  asyncHandler(async (_req, res) => {
+    const [services, devices, zones, bundles] = await Promise.all([
+      prisma.siteService.findMany({
+        where: { deletedAt: null },
+        orderBy: [{ featured: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
+        include: {
+          problems: { orderBy: { sortOrder: 'asc' }, include: { devices: { select: { id: true } } } },
+          devices: true,
+          _count: { select: { bundles: true } },
+        },
+      }),
+      prisma.serviceDevice.findMany({ orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] }),
+      prisma.serviceZone.findMany({ orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] }),
+      prisma.serviceBundle.findMany({ orderBy: { createdAt: 'asc' }, include: { services: { where: { deletedAt: null }, select: { id: true, name: true } } } }),
+    ]);
+    ok(res, {
+      services: services.map((s) => ({
+        ...s,
+        priceInside: num(s.priceInside),
+        priceOutside: num(s.priceOutside),
+        travelFee: num(s.travelFee),
+        problems: s.problems.map((p) => ({ id: p.id, name: p.name, isOther: p.isOther, active: p.active, deviceIds: p.devices.map((d) => d.id) })),
+        devices: s.devices.map((l) => ({ deviceId: l.deviceId, included: l.included, fee: num(l.fee) })),
+      })),
+      devices: devices.map((d) => ({ ...d, fee: num(d.fee) })),
+      zones: zones.map((z) => ({ ...z, travelFee: num(z.travelFee) })),
+      bundles: bundles.map((b) => ({ ...b, priceInside: num(b.priceInside), priceOutside: num(b.priceOutside) })),
+    });
+  }),
+);
+
+// ───── الخدمات ─────
+
+const serviceInput = z.object({
+  name: text(160).min(3, 'اكتب اسم الخدمة'),
+  summary: text(400).default(''),
+  includes: text(3000).default(''),
+  audiences: z.array(z.enum(AUDIENCES)).min(1, 'اختر قسمًا واحدًا على الأقل (منازل أو شركات)'),
+  requestTypes: z.array(z.enum(REQUEST_TYPES)).min(1, 'اختر نوع طلب واحدًا على الأقل'),
+  priceInside: money,
+  priceOutside: money,
+  travelFee: money.default(0),
+  discountPercent: z.coerce.number().int().min(0).max(90).default(0),
+  durationMinutes: z.coerce.number().int().min(15, 'المدة 15 دقيقة على الأقل').max(24 * 60).default(60),
+  visitFeePolicy: z.enum(['DEDUCTIBLE', 'SEPARATE']).default('SEPARATE'),
+  terms: text(2000).default(''),
+  featured: z.boolean().default(false),
+  sortOrder: z.coerce.number().int().min(0).max(10_000).default(0),
+  active: z.boolean().default(true),
+});
+
+const priceFields = (s: { priceInside: unknown; priceOutside: unknown; travelFee: unknown; discountPercent: unknown }) => ({
+  priceInside: s.priceInside,
+  priceOutside: s.priceOutside,
+  travelFee: s.travelFee,
+  discountPercent: s.discountPercent,
+});
+
+siteServicesAdminRouter.post(
+  '/services',
+  asyncHandler(async (req, res) => {
+    const input = serviceInput.parse(req.body);
+    let slug = slugify(input.name);
+    if (await prisma.siteService.findUnique({ where: { slug } })) slug = `${slug}-${randomSuffix()}`;
+    const s = await prisma.siteService.create({
+      data: { ...input, slug, audiences: [...new Set(input.audiences)], requestTypes: [...new Set(input.requestTypes)], priceInside: D(input.priceInside), priceOutside: D(input.priceOutside), travelFee: D(input.travelFee) },
+    });
+    await logPrices(req, 'service', s.id, s.name, null, priceFields(input));
+    await audit({ actorType: 'admin', actorId: req.auth!.sub, action: 'create', entity: 'site_service', entityId: s.id });
+    ok(res, { id: s.id, slug: s.slug }, 201);
+  }),
+);
+
+siteServicesAdminRouter.patch(
+  '/services/:id',
+  asyncHandler(async (req, res) => {
+    const input = serviceInput.partial().parse(req.body);
+    const before = await prisma.siteService.findFirst({ where: { id: req.params.id, deletedAt: null } });
+    if (!before) throw notFound('الخدمة غير موجودة');
+    const s = await prisma.siteService.update({
+      where: { id: before.id },
+      data: {
+        ...input,
+        audiences: input.audiences ? [...new Set(input.audiences)] : undefined,
+        requestTypes: input.requestTypes ? [...new Set(input.requestTypes)] : undefined,
+        priceInside: input.priceInside != null ? D(input.priceInside) : undefined,
+        priceOutside: input.priceOutside != null ? D(input.priceOutside) : undefined,
+        travelFee: input.travelFee != null ? D(input.travelFee) : undefined,
+      },
+    });
+    await logPrices(req, 'service', s.id, s.name, priceFields(before), priceFields(s));
+    await audit({ actorType: 'admin', actorId: req.auth!.sub, action: 'update', entity: 'site_service', entityId: s.id });
+    ok(res, { id: s.id });
+  }),
+);
+
+siteServicesAdminRouter.delete(
+  '/services/:id',
+  asyncHandler(async (req, res) => {
+    const s = await prisma.siteService.findFirst({ where: { id: req.params.id, deletedAt: null } });
+    if (!s) throw notFound('الخدمة غير موجودة');
+    // حذف ناعم: الطلبات السابقة تحتفظ بنسخة من الخدمة، والرابط يتحرر لخدمة جديدة
+    await prisma.siteService.update({ where: { id: s.id }, data: { deletedAt: new Date(), active: false, slug: `${s.slug}-deleted-${randomSuffix(6)}`, bundles: { set: [] } } });
+    await audit({ actorType: 'admin', actorId: req.auth!.sub, action: 'delete', entity: 'site_service', entityId: s.id, meta: { name: s.name } });
+    ok(res, { deleted: true });
+  }),
+);
+
+/** المشكلات وربطها بالأجهزة (تستبدل القائمة كاملة) */
+siteServicesAdminRouter.put(
+  '/services/:id/problems',
+  asyncHandler(async (req, res) => {
+    const list = z
+      .array(z.object({ id: z.string().max(40).optional(), name: text(160).min(2, 'اكتب اسم المشكلة'), isOther: z.boolean().default(false), active: z.boolean().default(true), deviceIds: z.array(z.string().max(40)).max(30).default([]) }))
+      .max(40)
+      .parse(req.body);
+    const s = await prisma.siteService.findFirst({ where: { id: req.params.id, deletedAt: null }, select: { id: true } });
+    if (!s) throw notFound('الخدمة غير موجودة');
+    const devices = new Set((await prisma.serviceDevice.findMany({ select: { id: true } })).map((d) => d.id));
+    if (list.some((p) => p.deviceIds.some((id) => !devices.has(id)))) throw badRequest('أحد الأجهزة غير موجود');
+    await prisma.$transaction(async (tx) => {
+      const keep = list.filter((p) => p.id).map((p) => p.id!);
+      await tx.serviceProblem.deleteMany({ where: { serviceId: s.id, id: { notIn: keep } } });
+      for (const [i, p] of list.entries()) {
+        const data = { name: p.name, isOther: p.isOther, active: p.active, sortOrder: i };
+        const devicesSet = p.deviceIds.map((id) => ({ id }));
+        const existing = p.id ? await tx.serviceProblem.findFirst({ where: { id: p.id, serviceId: s.id }, select: { id: true } }) : null;
+        if (existing) await tx.serviceProblem.update({ where: { id: existing.id }, data: { ...data, devices: { set: devicesSet } } });
+        else await tx.serviceProblem.create({ data: { ...data, serviceId: s.id, devices: { connect: devicesSet } } });
+      }
+    });
+    await audit({ actorType: 'admin', actorId: req.auth!.sub, action: 'update_problems', entity: 'site_service', entityId: s.id });
+    ok(res, { saved: list.length });
+  }),
+);
+
+/** الأجهزة المتاحة للخدمة: مشمول بلا رسوم، أو رسوم خاصة بالخدمة */
+siteServicesAdminRouter.put(
+  '/services/:id/devices',
+  asyncHandler(async (req, res) => {
+    const list = z.array(z.object({ deviceId: z.string().max(40), included: z.boolean().default(false), fee: money.nullable().optional() })).max(30).parse(req.body);
+    const s = await prisma.siteService.findFirst({ where: { id: req.params.id, deletedAt: null }, include: { devices: true } });
+    if (!s) throw notFound('الخدمة غير موجودة');
+    const devices = await prisma.serviceDevice.findMany({ where: { id: { in: list.map((l) => l.deviceId) } }, select: { id: true, name: true } });
+    if (devices.length !== new Set(list.map((l) => l.deviceId)).size) throw badRequest('أحد الأجهزة غير موجود');
+    await prisma.$transaction([
+      prisma.serviceDeviceLink.deleteMany({ where: { serviceId: s.id } }),
+      prisma.serviceDeviceLink.createMany({ data: list.map((l) => ({ serviceId: s.id, deviceId: l.deviceId, included: l.included, fee: l.fee != null ? D(l.fee) : null })) }),
+    ]);
+    for (const l of list) {
+      const prev = s.devices.find((x) => x.deviceId === l.deviceId);
+      const name = `${s.name} — ${devices.find((d) => d.id === l.deviceId)!.name}`;
+      await logPrices(req, 'service_device', `${s.id}:${l.deviceId}`, name, prev ? { fee: prev.fee, included: prev.included ? 1 : 0 } : null, { fee: l.fee ?? null, included: l.included ? 1 : 0 });
+    }
+    ok(res, { saved: list.length });
+  }),
+);
+
+// ───── الأجهزة ─────
+
+const deviceInput = z.object({
+  name: text(160).min(2, 'اكتب اسم الجهاز'),
+  description: text(600).default(''),
+  fee: money,
+  sortOrder: z.coerce.number().int().min(0).max(10_000).default(0),
+  active: z.boolean().default(true),
+});
+
+siteServicesAdminRouter.post(
+  '/devices',
+  asyncHandler(async (req, res) => {
+    const input = deviceInput.parse(req.body);
+    const d = await prisma.serviceDevice.create({ data: { ...input, fee: D(input.fee) } });
+    await logPrices(req, 'device', d.id, d.name, null, { fee: input.fee });
+    ok(res, { id: d.id }, 201);
+  }),
+);
+
+siteServicesAdminRouter.patch(
+  '/devices/:id',
+  asyncHandler(async (req, res) => {
+    const input = deviceInput.partial().parse(req.body);
+    const before = await prisma.serviceDevice.findUnique({ where: { id: req.params.id } });
+    if (!before) throw notFound('الجهاز غير موجود');
+    const d = await prisma.serviceDevice.update({ where: { id: before.id }, data: { ...input, fee: input.fee != null ? D(input.fee) : undefined } });
+    await logPrices(req, 'device', d.id, d.name, { fee: before.fee }, { fee: d.fee });
+    ok(res, { id: d.id });
+  }),
+);
+
+siteServicesAdminRouter.delete(
+  '/devices/:id',
+  asyncHandler(async (req, res) => {
+    const d = await prisma.serviceDevice.findUnique({ where: { id: req.params.id } });
+    if (!d) throw notFound('الجهاز غير موجود');
+    await prisma.serviceDevice.delete({ where: { id: d.id } });
+    await audit({ actorType: 'admin', actorId: req.auth!.sub, action: 'delete', entity: 'service_device', entityId: d.id, meta: { name: d.name } });
+    ok(res, { deleted: true });
+  }),
+);
+
+// ───── المناطق ─────
+
+const zoneInput = z.object({
+  name: text(80).min(2, 'اكتب اسم المنطقة'),
+  tier: z.enum(['INSIDE_AMMAN', 'OUTSIDE_AMMAN']),
+  travelFee: money.default(0),
+  requiresApproval: z.boolean().default(false),
+  sortOrder: z.coerce.number().int().min(0).max(10_000).default(0),
+  active: z.boolean().default(true),
+});
+
+siteServicesAdminRouter.post(
+  '/zones',
+  asyncHandler(async (req, res) => {
+    const input = zoneInput.parse(req.body);
+    const z0 = await prisma.serviceZone.create({ data: { ...input, travelFee: D(input.travelFee) } });
+    await logPrices(req, 'zone', z0.id, z0.name, null, { travelFee: input.travelFee });
+    ok(res, { id: z0.id }, 201);
+  }),
+);
+
+siteServicesAdminRouter.patch(
+  '/zones/:id',
+  asyncHandler(async (req, res) => {
+    const input = zoneInput.partial().parse(req.body);
+    const before = await prisma.serviceZone.findUnique({ where: { id: req.params.id } });
+    if (!before) throw notFound('المنطقة غير موجودة');
+    const z0 = await prisma.serviceZone.update({ where: { id: before.id }, data: { ...input, travelFee: input.travelFee != null ? D(input.travelFee) : undefined } });
+    await logPrices(req, 'zone', z0.id, z0.name, { travelFee: before.travelFee }, { travelFee: z0.travelFee });
+    ok(res, { id: z0.id });
+  }),
+);
+
+siteServicesAdminRouter.delete(
+  '/zones/:id',
+  asyncHandler(async (req, res) => {
+    const z0 = await prisma.serviceZone.findUnique({ where: { id: req.params.id } });
+    if (!z0) throw notFound('المنطقة غير موجودة');
+    await prisma.serviceZone.delete({ where: { id: z0.id } });
+    await audit({ actorType: 'admin', actorId: req.auth!.sub, action: 'delete', entity: 'service_zone', entityId: z0.id, meta: { name: z0.name } });
+    ok(res, { deleted: true });
+  }),
+);
+
+// ───── الزيارات المجمعة ─────
+
+const bundleInput = z.object({
+  name: text(160).min(3, 'اكتب اسم الزيارة المجمعة'),
+  priceInside: money,
+  priceOutside: money,
+  terms: text(2000).default(''),
+  active: z.boolean().default(true),
+  serviceIds: z.array(z.string().max(40)).min(2, 'اختر خدمتين على الأقل يمكن جمعهما في زيارة واحدة').max(50),
+});
+
+async function checkServices(ids: string[]) {
+  const n = await prisma.siteService.count({ where: { id: { in: ids }, deletedAt: null } });
+  if (n !== new Set(ids).size) throw badRequest('إحدى الخدمات غير موجودة');
+}
+
+siteServicesAdminRouter.post(
+  '/bundles',
+  asyncHandler(async (req, res) => {
+    const { serviceIds, ...input } = bundleInput.parse(req.body);
+    await checkServices(serviceIds);
+    const b = await prisma.serviceBundle.create({ data: { ...input, priceInside: D(input.priceInside), priceOutside: D(input.priceOutside), services: { connect: serviceIds.map((id) => ({ id })) } } });
+    await logPrices(req, 'bundle', b.id, b.name, null, { priceInside: input.priceInside, priceOutside: input.priceOutside });
+    ok(res, { id: b.id }, 201);
+  }),
+);
+
+siteServicesAdminRouter.patch(
+  '/bundles/:id',
+  asyncHandler(async (req, res) => {
+    const { serviceIds, ...input } = bundleInput.partial().parse(req.body);
+    const before = await prisma.serviceBundle.findUnique({ where: { id: req.params.id } });
+    if (!before) throw notFound('الزيارة المجمعة غير موجودة');
+    if (serviceIds) await checkServices(serviceIds);
+    const b = await prisma.serviceBundle.update({
+      where: { id: before.id },
+      data: {
+        ...input,
+        priceInside: input.priceInside != null ? D(input.priceInside) : undefined,
+        priceOutside: input.priceOutside != null ? D(input.priceOutside) : undefined,
+        services: serviceIds ? { set: serviceIds.map((id) => ({ id })) } : undefined,
+      },
+    });
+    await logPrices(req, 'bundle', b.id, b.name, { priceInside: before.priceInside, priceOutside: before.priceOutside }, { priceInside: b.priceInside, priceOutside: b.priceOutside });
+    ok(res, { id: b.id });
+  }),
+);
+
+siteServicesAdminRouter.delete(
+  '/bundles/:id',
+  asyncHandler(async (req, res) => {
+    const b = await prisma.serviceBundle.findUnique({ where: { id: req.params.id } });
+    if (!b) throw notFound('الزيارة المجمعة غير موجودة');
+    await prisma.serviceBundle.delete({ where: { id: b.id } });
+    await audit({ actorType: 'admin', actorId: req.auth!.sub, action: 'delete', entity: 'service_bundle', entityId: b.id, meta: { name: b.name } });
+    ok(res, { deleted: true });
+  }),
+);
+
+/** سجل تغييرات الأسعار: من غيّر، ماذا، ومتى */
+siteServicesAdminRouter.get(
+  '/price-log',
+  asyncHandler(async (req, res) => {
+    const { page } = z.object({ page: z.coerce.number().int().min(1).default(1) }).parse(req.query);
+    const where = { entity: 'service_price' };
+    const [items, total] = await Promise.all([
+      prisma.auditLog.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * 50, take: 50, include: { actor: { select: { name: true } } } }),
+      prisma.auditLog.count({ where }),
+    ]);
+    ok(res, { items: items.map((l) => ({ id: l.id, action: l.action, createdAt: l.createdAt, actor: l.actor?.name ?? null, meta: l.meta })), total, page, pageSize: 50 });
+  }),
+);

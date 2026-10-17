@@ -15,5 +15,5 @@
     "noImplicitReturns": true,
     "types": ["node", "jest"]
   },
-  "include": ["src", "tests", "prisma/seed.ts", "prisma/import-old.ts"]
+  "include": ["src", "tests", "prisma/seed.ts", "prisma/seedServices.ts", "prisma/import-old.ts"]
 }

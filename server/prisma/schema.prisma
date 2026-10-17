@@ -287,6 +287,7 @@ model Customer {
   loyaltyPoints   Int       @default(0)
 
   bookings          Booking[]
+  serviceRequests   ServiceRequest[]
   orders            Order[]
   tenders           Tender[]
   vendor            Vendor?
@@ -309,16 +310,17 @@ model Customer {
 
 /// الفنيون الذين يُعيَّنون على الحجوزات
 model Technician {
-  id        String          @id @default(cuid())
-  name      String
-  phone     String
-  specialty String?
-  active    Boolean         @default(true)
-  createdAt DateTime        @default(now())
-  updatedAt DateTime        @updatedAt
-  bookings  Booking[]
-  contracts Contract[]
-  visits    ContractVisit[]
+  id              String           @id @default(cuid())
+  name            String
+  phone           String
+  specialty       String?
+  active          Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  bookings        Booking[]
+  serviceRequests ServiceRequest[]
+  contracts       Contract[]
+  visits          ContractVisit[]
 }
 
 // ─────────────────────────── المتجر ───────────────────────────
@@ -2032,4 +2034,297 @@ model Counter {
   key       String   @id
   value     Int      @default(0)
   updatedAt DateTime @updatedAt
+}
+
+// ─────────────────────────── الخدمات والمعاينات والصيانة ───────────────────────────
+// كتالوج الخدمات (سكني / شركات ومصانع) بأسعار زيارة ثابتة داخل/خارج عمّان، والمشكلات والأجهزة
+// الإضافية والمناطق والزيارات المجمعة — كلها تُدار من لوحة التحكم. الطلب يحفظ تسعيره وقت الحجز.
+
+/// القسم الذي تظهر فيه الخدمة
+enum ServiceAudience {
+  HOME // المنازل والشقق والفلل
+  BUSINESS // الشركات والمصانع والمستودعات والورش
+}
+
+/// أنواع الطلب التي يمكن للعميل اختيارها
+enum ServiceRequestType {
+  INSPECTION // معاينة فنية فقط
+  INSPECTION_REPORT // معاينة مع تقرير فني
+  DIAGNOSIS // كشف عن مشكلة محددة
+  REPAIR_QUOTE // عرض سعر للإصلاح أو التنفيذ
+  REPAIR // صيانة أو إصلاح
+  PREVENTIVE // صيانة وقائية
+  CONTRACT // عقد صيانة دوري أو سنوي
+}
+
+/// فئة السعر حسب الموقع
+enum PriceTier {
+  INSIDE_AMMAN
+  OUTSIDE_AMMAN
+}
+
+/// سياسة رسوم الزيارة عند الموافقة على الإصلاح
+enum VisitFeePolicy {
+  DEDUCTIBLE // تُخصم من قيمة الإصلاح
+  SEPARATE // مستقلة
+}
+
+enum ClientType {
+  INDIVIDUAL
+  COMPANY
+  FACTORY
+  WAREHOUSE
+  WORKSHOP
+}
+
+enum ServiceRequestStatus {
+  NEW // طلب جديد
+  PENDING_CONFIRMATION // بانتظار تأكيد الحجز
+  CONFIRMED // تم تأكيد الحجز
+  TECH_ASSIGNED // تم تعيين الفني
+  VISIT_IN_PROGRESS // الزيارة قيد التنفيذ
+  INSPECTED // تمت المعاينة
+  REPORT_IN_PROGRESS // التقرير الفني قيد الإعداد
+  REPORT_SENT // تم إرسال التقرير أو عرض السعر
+  AWAITING_APPROVAL // بانتظار موافقة العميل على الإصلاح
+  REPAIR_APPROVED // تم اعتماد الإصلاح
+  REPAIR_IN_PROGRESS // أعمال الإصلاح قيد التنفيذ
+  WORK_DONE // تم إنجاز العمل
+  CLOSED // تم إغلاق الطلب
+  CANCELLED // ملغي
+}
+
+enum ServiceQuoteStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+}
+
+model SiteService {
+  id              String               @id @default(cuid())
+  name            String
+  slug            String               @unique
+  /// وصف مختصر يظهر في البطاقة
+  summary         String               @default("")
+  /// ما يشمله سعر الزيارة (سطر لكل بند)
+  includes        String               @default("")
+  audiences       ServiceAudience[]
+  /// أنواع الطلب المتاحة لهذه الخدمة
+  requestTypes    ServiceRequestType[]
+  priceInside     Decimal              @db.Decimal(10, 3)
+  priceOutside    Decimal              @db.Decimal(10, 3)
+  /// رسوم انتقال إضافية لهذه الخدمة خارج عمّان (تضاف لرسوم المنطقة)
+  travelFee       Decimal              @default(0) @db.Decimal(10, 3)
+  /// خصم على سعر الزيارة (عرض) 0–90
+  discountPercent Int                  @default(0)
+  /// المدة التقديرية بالدقائق — لتنظيم المواعيد فقط، لا تؤثر على السعر
+  durationMinutes Int                  @default(60)
+  visitFeePolicy  VisitFeePolicy       @default(SEPARATE)
+  /// شروط تظهر للعميل قبل التأكيد (إضافة على الشروط العامة)
+  terms           String               @default("")
+  /// قسم رئيسي يُعرض بشكل مميز (مثل قسم التسربات والرطوبة)
+  featured        Boolean              @default(false)
+  sortOrder       Int                  @default(0)
+  active          Boolean              @default(true)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  deletedAt       DateTime?
+
+  problems ServiceProblem[]
+  devices  ServiceDeviceLink[]
+  bundles  ServiceBundle[]
+
+  @@index([active, deletedAt])
+}
+
+/// المشكلات التي يختار منها العميل داخل الخدمة (مثل رطوبة الجدران)
+model ServiceProblem {
+  id        String          @id @default(cuid())
+  serviceId String
+  name      String
+  /// "مشكلة أخرى": تعرض كل أجهزة الخدمة ويكتب العميل وصفها
+  isOther   Boolean         @default(false)
+  sortOrder Int             @default(0)
+  active    Boolean         @default(true)
+  service   SiteService     @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  devices   ServiceDevice[]
+
+  @@index([serviceId])
+}
+
+/// الأجهزة والفحوصات الإضافية (تُربط بالخدمات وبالمشكلات)
+model ServiceDevice {
+  id          String              @id @default(cuid())
+  name        String
+  description String              @default("")
+  /// الرسوم الافتراضية لإضافة الجهاز للزيارة
+  fee         Decimal             @db.Decimal(10, 3)
+  sortOrder   Int                 @default(0)
+  active      Boolean             @default(true)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  services    ServiceDeviceLink[]
+  problems    ServiceProblem[]
+}
+
+model ServiceDeviceLink {
+  serviceId String
+  deviceId  String
+  /// مشمول في سعر الزيارة بلا رسوم
+  included  Boolean       @default(false)
+  /// رسوم خاصة بهذه الخدمة (فارغ = رسوم الجهاز الافتراضية)
+  fee       Decimal?      @db.Decimal(10, 3)
+  service   SiteService   @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  device    ServiceDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@id([serviceId, deviceId])
+}
+
+/// مناطق العمل: فئة السعر ورسوم الانتقال والموافقة المسبقة
+model ServiceZone {
+  id               String    @id @default(cuid())
+  name             String
+  tier             PriceTier
+  travelFee        Decimal   @default(0) @db.Decimal(10, 3)
+  /// تحتاج موافقة الإدارة قبل التأكيد (منطقة بعيدة)
+  requiresApproval Boolean   @default(false)
+  sortOrder        Int       @default(0)
+  active           Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
+/// الزيارة المجمعة: سعر موحد عند اختيار أكثر من خدمة من خدماتها في نفس الموقع
+model ServiceBundle {
+  id           String        @id @default(cuid())
+  name         String
+  priceInside  Decimal       @db.Decimal(10, 3)
+  priceOutside Decimal       @db.Decimal(10, 3)
+  terms        String        @default("")
+  active       Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  services     SiteService[]
+}
+
+model ServiceRequest {
+  id              String               @id @default(cuid())
+  number          Int                  @unique @default(autoincrement())
+  ref             String               @unique
+  customerId      String
+  status          ServiceRequestStatus @default(NEW)
+  requestType     ServiceRequestType
+  name            String
+  phone           String
+  clientType      ClientType
+  propertyType    String
+  zoneId          String?
+  zoneName        String
+  tier            PriceTier
+  area            String
+  address         String
+  lat             Float?
+  lng             Float?
+  description     String
+  problemLocation String?
+  notes           String?
+  scheduledAt     DateTime
+  /// لقطة الخدمات والمشكلات والأجهزة المختارة وقت الحجز
+  services        Json
+  problems        Json                 @default("[]")
+  devices         Json                 @default("[]")
+  /// بنود السعر المعتمدة وقت الحجز — لا تتغير بتعديل الأسعار لاحقًا
+  priceLines      Json
+  total           Decimal              @db.Decimal(10, 3)
+  visitFeePolicy  VisitFeePolicy
+  needsApproval   Boolean              @default(false)
+  termsAcceptedAt DateTime
+  technicianId    String?
+  adminNotes      String?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  deletedAt       DateTime?
+
+  customer   Customer              @relation(fields: [customerId], references: [id])
+  technician Technician?           @relation(fields: [technicianId], references: [id])
+  media      ServiceRequestMedia[]
+  events     ServiceRequestEvent[]
+  report     ServiceReport?
+  quotes     ServiceQuote[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([scheduledAt])
+  @@index([createdAt])
+}
+
+model ServiceRequestMedia {
+  id           String         @id @default(cuid())
+  requestId    String
+  kind         MediaKind
+  /// customer | report
+  purpose      String         @default("customer")
+  url          String
+  publicId     String?
+  originalName String?
+  createdAt    DateTime       @default(now())
+  request      ServiceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+}
+
+/// سجل الطلب: تغييرات الحالة، الموعد، الفني، وأعمال الإصلاح
+model ServiceRequestEvent {
+  id         String                @id @default(cuid())
+  requestId  String
+  /// status | schedule | technician | work | note
+  kind       String
+  fromStatus ServiceRequestStatus?
+  toStatus   ServiceRequestStatus?
+  note       String?
+  actorId    String?
+  actorName  String?
+  createdAt  DateTime              @default(now())
+  request    ServiceRequest        @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId, createdAt])
+}
+
+model ServiceReport {
+  id              String         @id @default(cuid())
+  requestId       String         @unique
+  findings        String         @default("")
+  devicesUsed     String         @default("")
+  recommendations String         @default("")
+  repairsNeeded   String         @default("")
+  /// منشور للعميل
+  published       Boolean        @default(false)
+  publishedAt     DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  request         ServiceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+}
+
+/// عرض سعر الإصلاح (منفصل عن رسوم الزيارة)
+model ServiceQuote {
+  id                String             @id @default(cuid())
+  requestId         String
+  number            Int
+  /// [{ description, qty, unitPrice }]
+  items             Json
+  subtotal          Decimal            @db.Decimal(12, 3)
+  /// رسوم الزيارة المخصومة (حسب سياسة الخدمة)
+  visitFeeDeduction Decimal            @default(0) @db.Decimal(12, 3)
+  total             Decimal            @db.Decimal(12, 3)
+  notes             String             @default("")
+  validUntil        DateTime?
+  status            ServiceQuoteStatus @default(DRAFT)
+  sentAt            DateTime?
+  respondedAt       DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  request           ServiceRequest     @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@unique([requestId, number])
 }

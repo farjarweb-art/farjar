@@ -6,6 +6,7 @@
 import 'dotenv/config';
 import { Prisma, PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import { seedServices } from './seedServices';
 
 const prisma = new PrismaClient();
 
@@ -269,6 +270,8 @@ async function main() {
     });
   }
   console.log('✓ خدمات الشركات');
+
+  await seedServices(prisma);
 
   if (process.env.SEED_DEMO === 'false') return;
 

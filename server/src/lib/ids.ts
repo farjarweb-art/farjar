@@ -4,7 +4,7 @@ import { randomInt } from 'crypto';
 const ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
 
 /** رمز مرجعي عشوائي مثل VJ-7K3M9Q */
-export function makeRef(prefix: 'B' | 'O' | 'C'): string {
+export function makeRef(prefix: 'B' | 'O' | 'C' | 'S'): string {
   let s = '';
   for (let i = 0; i < 6; i++) s += ALPHABET[randomInt(ALPHABET.length)];
   return `${prefix}-${s}`;

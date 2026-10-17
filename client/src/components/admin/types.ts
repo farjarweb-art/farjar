@@ -535,7 +535,7 @@ export type SettingsResponse = {
 };
 
 export type AdminEvent = {
-  type: 'booking.created' | 'order.created' | 'corporate.created' | 'status.changed' | 'product.pending' | 'product.feeRequest' | 'rfq.new' | 'rfq.awarded' | 'supplier.pending' | 'invoice.proof';
+  type: 'booking.created' | 'order.created' | 'corporate.created' | 'status.changed' | 'product.pending' | 'product.feeRequest' | 'rfq.new' | 'rfq.awarded' | 'supplier.pending' | 'invoice.proof' | 'service_request.created' | 'service_request.updated';
   id: string;
   title: string;
   at: string;

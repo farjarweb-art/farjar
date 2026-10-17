@@ -18,6 +18,8 @@ import { tendersAdminRouter } from './tenders';
 import { reportsRouter } from './reports';
 import { usersRouter } from './users';
 import { marketAdminRouter } from './market';
+import { serviceRequestsAdminRouter } from './serviceRequests';
+import { siteServicesAdminRouter } from './siteServices';
 
 export const adminRouter = Router();
 adminRouter.use(requireAdmin);
@@ -28,6 +30,9 @@ adminRouter.use('/store', requireAccess('catalog.manage', 'catalog.manage'), pro
 adminRouter.use('/orders', requireAccess('orders.view', 'orders.manage'), ordersRouter);
 adminRouter.use('/bookings', requireAccess('bookings.manage', 'bookings.manage'), bookingsAdminRouter);
 adminRouter.use('/technicians', requireAccess('bookings.manage', 'bookings.manage'), techniciansRouter);
+// الخدمات والمعاينات: الكتالوج والأسعار (عرض لموظفي الطلبات، تعديل لمن يملك إدارة الكتالوج) والطلبات
+adminRouter.use('/site-services', requireAccess('services.requests', 'services.manage'), siteServicesAdminRouter);
+adminRouter.use('/service-requests', requireAccess('services.requests', 'services.requests'), serviceRequestsAdminRouter);
 adminRouter.use('/corporate', requireAccess('corporate.manage', 'corporate.manage'), corporateAdminRouter);
 adminRouter.use('/files', requireAccess('customers.view', 'customers.manage'), filesRouter);
 adminRouter.use('/finance', requireAccess('payments.view', 'payments.manage'), financeRouter);

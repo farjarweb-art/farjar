@@ -59,6 +59,8 @@ const PERM_LABEL: Record<string, string> = {
   'insights.view': 'أداء المنصة والإحصائيات (Super Admin فقط)',
   'rewards.manage': 'التميز الشهري والمكافآت والكوبونات (Super Admin فقط)',
   'bookings.manage': 'الحجوزات والفنيون',
+  'services.requests': 'طلبات المعاينات والصيانة',
+  'services.manage': 'كتالوج الخدمات والأسعار',
   'corporate.manage': 'طلبات وعقود وعطاءات الشركات',
   'payments.view': 'عرض المالية والمدفوعات',
   'payments.manage': 'تسجيل المدفوعات',

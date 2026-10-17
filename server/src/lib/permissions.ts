@@ -25,6 +25,10 @@ export const PERMISSIONS = [
   'market.manage',
   'market.finance',
   'bookings.manage',
+  /** طلبات المعاينات والصيانة: الحجوزات، الفنيين، التقارير وعروض أسعار الإصلاح */
+  'services.requests',
+  /** كتالوج الخدمات: الخدمات والأسعار والأجهزة والمناطق والزيارات المجمعة */
+  'services.manage',
   'corporate.manage',
   'payments.view',
   'payments.manage',

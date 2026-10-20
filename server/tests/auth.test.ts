@@ -54,9 +54,19 @@ describe('POST /api/auth/register', () => {
     expect(bad.body.error.fields.password).toContain('8 أحرف');
   });
 
+  it('البريد الإلكتروني إلزامي عند إنشاء الحساب', async () => {
+    for (const email of [undefined, '', '   ']) {
+      const res = await request(app).post('/api/auth/register').send({ ...account, email });
+      expect(res.status).toBe(400);
+      expect(res.body.error.fields.email).toContain('البريد الإلكتروني مطلوب');
+    }
+    const bad = await request(app).post('/api/auth/register').send({ ...account, email: 'not-an-email' });
+    expect(bad.body.error.fields.email).toContain('غير صالح');
+  });
+
   it('يمنع تكرار الرقم أو البريد', async () => {
     await request(app).post('/api/auth/register').send(account);
-    const dupPhone = await request(app).post('/api/auth/register').send({ ...account, email: '' });
+    const dupPhone = await request(app).post('/api/auth/register').send({ ...account, email: 'other@example.com' });
     expect(dupPhone.status).toBe(409);
     expect(dupPhone.body.error.message).toContain('مسجّل مسبقًا');
     const dupEmail = await request(app).post('/api/auth/register').send({ ...account, phone: '0781112233' });
@@ -166,7 +176,7 @@ describe('الصلاحيات', () => {
     const a = request.agent(app);
     const b = request.agent(app);
     await a.post('/api/auth/register').send(account);
-    await b.post('/api/auth/register').send({ name: 'عمر', phone: '0772223344', password: 'Other@1234' });
+    await b.post('/api/auth/register').send({ name: 'عمر', phone: '0772223344', email: 'omar@example.com', password: 'Other@1234' });
     await a.post('/api/v1/bookings').send(booking('0791112233', '10:00', date));
     await b.post('/api/v1/bookings').send(booking('0772223344', '14:00', date));
     const ra = await a.get('/api/account/overview');
@@ -332,7 +342,7 @@ describe('تقوية الحسابات', () => {
     expect(reg.body.error.fields ?? reg.body.error.details).toBeTruthy();
 
     const agent = request.agent(app);
-    expect((await agent.post('/api/auth/register').send({ ...account, email: '' })).status).toBe(201);
+    expect((await agent.post('/api/auth/register').send(account)).status).toBe(201);
     expect((await agent.patch('/api/auth/profile').send({ email: 'admin@test.jo' })).status).toBe(409);
 
     // دخول الأدمن من الصفحة العامة ما زال يعمل

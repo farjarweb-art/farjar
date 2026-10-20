@@ -20,7 +20,9 @@ describe('النشرة البريدية', () => {
   it('ترسل للمسجّلين الموافقين فقط، وتسجل العدادات', async () => {
     await createCustomer({ phone: '0791000001', email: 'a@example.com' });
     await createCustomer({ phone: '0791000002', email: 'b@example.com' });
-    await createCustomer({ phone: '0791000003' }); // بدون بريد
+    await createCustomer({ phone: '0791000003' });
+    // حساب قديم بلا بريد (قبل جعل البريد إلزاميًا)
+    await prisma.customer.update({ where: { phone: '962791000003' }, data: { email: null } });
     const out = await createCustomer({ phone: '0791000004', email: 'c@example.com' });
     await out.patch('/api/auth/profile').send({ emailOptIn: false });
 

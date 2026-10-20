@@ -68,8 +68,9 @@ describe('رمز التحقق بالبريد (OTP)', () => {
     expect(expired.body.error.message).toContain('انتهت صلاحية');
   });
 
-  it('العميل بدون بريد لا يستطيع طلب رمز', async () => {
+  it('العميل بدون بريد (حساب قديم) لا يستطيع طلب رمز', async () => {
     const c = await createCustomer();
+    await prisma.customer.updateMany({ data: { email: null } });
     const r = await c.post('/api/v1/account/email-otp/send').send({});
     expect(r.status).toBe(409);
   });

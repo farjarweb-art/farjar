@@ -62,7 +62,7 @@ export async function createCustomer(data: Partial<{ name: string; phone: string
   const res = await agent.post('/api/v1/auth/register').send({
     name: data.name ?? 'عميل تجريبي',
     phone: data.phone ?? '0790000001',
-    email: data.email,
+    email: data.email ?? `c${(data.phone ?? '0790000001').replace(/\D/g, '')}@test.jo`,
     password: data.password ?? 'Customer@123',
   });
   if (res.status !== 201) throw new Error(`customer register failed: ${JSON.stringify(res.body)}`);

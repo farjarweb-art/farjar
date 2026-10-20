@@ -18,7 +18,8 @@ function validate(v: Form, needRef: boolean): Errors {
   else if (name.length < 2) e.name = 'الاسم قصير جدًا';
   if (!v.phone.trim()) e.phone = 'رقم الهاتف مطلوب';
   else if (!isJordanMobile(v.phone)) e.phone = 'أدخل رقم هاتف أردني صحيح بالصيغة 07XXXXXXXX';
-  if (v.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email.trim())) e.email = 'البريد الإلكتروني غير صالح';
+  if (!v.email.trim()) e.email = 'البريد الإلكتروني مطلوب';
+  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email.trim())) e.email = 'البريد الإلكتروني غير صالح';
   if (!v.password) e.password = 'كلمة المرور مطلوبة';
   else if (v.password.length < 8) e.password = 'كلمة المرور 8 أحرف على الأقل';
   if (v.password && v.confirm !== v.password) e.confirm = 'كلمتا المرور غير متطابقتين';
@@ -71,7 +72,7 @@ export default function Register() {
       const me = await api.post<CustomerMe>('/auth/register', {
         name: v.name.trim(),
         phone: v.phone.trim(),
-        email: v.email.trim() || null,
+        email: v.email.trim(),
         password: v.password,
         emailOptIn: optIn,
         ...(claim ? { ref: v.ref.trim() } : {}),
@@ -146,7 +147,6 @@ export default function Register() {
         <Input
           name="email"
           label="البريد الإلكتروني"
-          optional
           type="email"
           inputMode="email"
           autoComplete="email"
@@ -155,16 +155,14 @@ export default function Register() {
           value={v.email}
           onChange={set('email')}
           error={errors.email}
-          hint="يمكنك الدخول به بدل رقم الهاتف."
+          hint="مطلوب — تدخل به بدل رقم الهاتف، وتستعيد به كلمة المرور."
         />
-        {v.email.trim() && (
-          <Checkbox
-            label="أرسلوا لي أخبار المنتجات والخدمات الجديدة"
-            description="رسائل قليلة بالبريد، ويمكنك إلغاؤها في أي وقت."
-            checked={optIn}
-            onChange={setOptIn}
-          />
-        )}
+        <Checkbox
+          label="أرسلوا لي أخبار المنتجات والخدمات الجديدة"
+          description="رسائل قليلة بالبريد، ويمكنك إلغاؤها في أي وقت."
+          checked={optIn}
+          onChange={setOptIn}
+        />
         <PasswordInput name="password" label="كلمة المرور" autoComplete="new-password" value={v.password} onChange={set('password')} error={errors.password} hint="8 أحرف على الأقل." />
         <PasswordInput name="confirm" label="تأكيد كلمة المرور" autoComplete="new-password" value={v.confirm} onChange={set('confirm')} error={errors.confirm} />
 

@@ -2140,6 +2140,8 @@ export const EN_TEXT: Record<string, string> = {
   "مالية الموردين": "Supplier finance",
   "عدد الزوار": "Visitors",
   "عدد زوار الموقع": "Site visitors",
+  "البريد الإلكتروني مطلوب": "Email is required",
+  "مطلوب — تدخل به بدل رقم الهاتف، وتستعيد به كلمة المرور.": "Required — you can sign in with it instead of your phone, and use it to reset your password.",
   "حجوزات المعاينة والصيانة": "inspection & maintenance bookings",
   "احجز معاينتك أو صيانتك": "Book your inspection or maintenance",
   "بسعر زيارة ثابت": "at a fixed visit price",

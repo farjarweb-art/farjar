@@ -147,11 +147,8 @@ authRouter.post(
       .object({
         name: nameField,
         phone: jordanPhoneField,
-        email: z
-          .union([emailField, z.literal('')])
-          .optional()
-          .nullable()
-          .transform((v) => v || null),
+        /** البريد إلزامي عند إنشاء الحساب (للدخول واستعادة كلمة المرور والإشعارات) */
+        email: z.string({ required_error: 'البريد الإلكتروني مطلوب', invalid_type_error: 'البريد الإلكتروني مطلوب' }).trim().min(1, 'البريد الإلكتروني مطلوب').pipe(emailField),
         password: passwordField,
         /** موافقة على استلام أخبار المنتجات والخدمات الجديدة بالبريد */
         emailOptIn: z.boolean().default(true),
@@ -165,7 +162,7 @@ authRouter.post(
       throw conflict('هذا الرقم مسجّل مسبقًا. سجّل الدخول بدلًا من ذلك.', { field: 'phone', code: 'PHONE_TAKEN' });
     }
 
-    if (input.email) {
+    {
       const byEmail = await prisma.customer.findUnique({ where: { email: input.email }, select: { id: true } });
       if ((byEmail && byEmail.id !== existing?.id) || (await isStaffEmail(input.email))) {
         throw conflict('هذا البريد مستخدم لحساب آخر', { field: 'email', code: 'EMAIL_TAKEN' });
@@ -210,7 +207,7 @@ authRouter.post(
     const customer = existing
       ? await prisma.customer.update({
           where: { id: existing.id },
-          data: { ...data, email: input.email ?? existing.email, deletedAt: null, otpHash: null, otpExpiresAt: null },
+          data: { ...data, deletedAt: null, otpHash: null, otpExpiresAt: null },
         })
       : await prisma.customer.create({ data: { ...data, phone: input.phone } });
 

@@ -5,7 +5,7 @@ import { useMutation } from '../admin/hooks';
 import type { AdminProduct, FeeEditPolicy, ProductMedia } from '../admin/types';
 import { AdminPage, FieldError, Panel } from '../admin/ui';
 import { Alert, Button, ButtonLink, Checkbox, Icon, Input, Select, Tag, Textarea } from '../ui';
-import { api } from '../../lib/api';
+import { api, fileHref } from '../../lib/api';
 import { cx, formatJOD } from '../../lib/format';
 import type { ProductOption, SpecField } from '../../lib/types';
 import { AVAILABILITY_LABEL, type Availability, type MarketFile } from '../../lib/market';
@@ -726,7 +726,7 @@ function DocumentsManager({ product, apiBase }: { product: AdminProduct; apiBase
         <ul className="mb-4 divide-y divide-line rounded-xl border border-line">
           {docs.map((d, i) => (
             <li key={i} className="flex items-center justify-between gap-3 px-3 py-2.5 text-sm">
-              <a href={d.url} target="_blank" rel="noopener noreferrer" className="flex min-w-0 items-center gap-2 hover:underline">
+              <a href={fileHref(d.url)} target="_blank" rel="noopener noreferrer" className="flex min-w-0 items-center gap-2 hover:underline">
                 <Icon name="file" className="h-4 w-4 shrink-0 text-muted" />
                 <span className="truncate">{d.name}</span>
               </a>

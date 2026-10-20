@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { api } from '../../lib/api';
+import { api, fileHref } from '../../lib/api';
 import { addDays, todayAmman } from '../../lib/format';
 import { useI18n } from '../../lib/i18n';
 import { Button, Input, Select, Tag, Textarea } from '../ui';
@@ -167,7 +167,7 @@ export function AttachmentList({ items }: { items: Attachment[] }) {
     <ul className="flex flex-wrap gap-2">
       {items.map((a, i) => (
         <li key={i}>
-          <a href={a.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-1 text-sm hover:border-ink">
+          <a href={fileHref(a.url)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-1 text-sm hover:border-ink">
             {a.name}
           </a>
         </li>

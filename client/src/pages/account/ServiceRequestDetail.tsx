@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { PriceSummary } from '../../components/services/PriceSummary';
 import { Breadcrumbs, Button, ButtonLink, ErrorState, Icon, Modal, Skeleton, Tag, Textarea } from '../../components/ui';
 import { useToast } from '../../context/ToastContext';
-import { ApiError, api } from '../../lib/api';
+import { ApiError, api, fileHref } from '../../lib/api';
 import { cx, formatDate, formatJOD } from '../../lib/format';
 import { CLIENT_TYPE_LABEL, POLICY_TEXT, isDocumentMedia, QUOTE_STATUS_LABEL, STATUS_FLOW, STATUS_LABEL, TIER_LABEL, statusTone, type RequestCore, type SrStatus } from '../../lib/siteServices';
 import { useAsync, useDocumentTitle } from '../../lib/useAsync';
@@ -171,7 +171,7 @@ export default function ServiceRequestDetail() {
                 m.kind === 'VIDEO' ? (
                   <video key={m.id} src={m.url} controls className="col-span-3 w-full rounded-lg" />
                 ) : (
-                  <a key={m.id} href={m.url} target="_blank" rel="noopener noreferrer">
+                  <a key={m.id} href={fileHref(m.url)} target="_blank" rel="noopener noreferrer">
                     <img src={m.url} alt="" className="aspect-square w-full rounded-lg object-cover" />
                   </a>
                 ),
@@ -191,7 +191,7 @@ export default function ServiceRequestDetail() {
           <ul className="mt-3 divide-y divide-line">
             {docs.map((m) => (
               <li key={m.id}>
-                <a href={m.url} target="_blank" rel="noopener noreferrer" className="flex min-h-[44px] items-center justify-between gap-3 py-2 text-[15px] hover:underline">
+                <a href={fileHref(m.url)} target="_blank" rel="noopener noreferrer" className="flex min-h-[44px] items-center justify-between gap-3 py-2 text-[15px] hover:underline">
                   <span className="flex min-w-0 items-center gap-2">
                     <Icon name="file" className="h-4 w-4 shrink-0" />
                     <span className="truncate">{m.originalName ?? 'ملف'}</span>

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { api } from '../../lib/api';
+import { api, fileHref } from '../../lib/api';
 import { FILE_KIND_LABEL, PAYMENT_METHOD_LABEL, cx, displayPhone, formatDate, formatJOD } from '../../lib/format';
 import { Icon, Tag } from '../ui';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -22,7 +22,7 @@ export function FilesList({ files, onDeleted }: { files: QuoteFile[]; onDeleted?
               <Icon name="file" className="h-4 w-4" />
             </span>
             <div className="min-w-0 flex-1">
-              <a href={f.url} target="_blank" rel="noopener noreferrer" className="block truncate font-medium hover:text-brand-700 dark:hover:text-brand-200">
+              <a href={fileHref(f.url)} target="_blank" rel="noopener noreferrer" className="block truncate font-medium hover:text-brand-700 dark:hover:text-brand-200">
                 {f.title}
               </a>
               <p className="text-xs text-muted">
@@ -30,7 +30,7 @@ export function FilesList({ files, onDeleted }: { files: QuoteFile[]; onDeleted?
                 {f.amount != null && <> · {formatJOD(f.amount)}</>}
               </p>
             </div>
-            <a href={f.url} target="_blank" rel="noopener noreferrer" download className="rounded-lg p-2 text-muted hover:bg-subtle hover:text-ink" aria-label="تحميل">
+            <a href={fileHref(f.url)} target="_blank" rel="noopener noreferrer" download className="rounded-lg p-2 text-muted hover:bg-subtle hover:text-ink" aria-label="تحميل">
               <Icon name="download" className="h-4 w-4" />
             </a>
             {onDeleted && (

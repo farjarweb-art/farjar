@@ -5,7 +5,7 @@ import { useAdminQuery, useFilters, useMutation } from '../../../components/admi
 import { AdminPage, DefList, DetailSkeleton, FilterBar, FilterSelect, Panel, SearchInput } from '../../../components/admin/ui';
 import { PlanBadge, VerifiedMark } from '../../../components/market/Badges';
 import { Alert, Button, Checkbox, ErrorState, Icon, Input, Modal, Select, Tag, Textarea } from '../../../components/ui';
-import { api } from '../../../lib/api';
+import { api, fileHref } from '../../../lib/api';
 import { formatDate, formatJOD } from '../../../lib/format';
 import { AD_STATUS_LABEL, AD_TYPE_LABEL, INVOICE_PURPOSE_LABEL, INVOICE_STATUS_LABEL, VENDOR_STATUS_LABEL, vendorStatusTone, type MarketFile, type VendorStatus } from '../../../lib/market';
 import type { Paged } from '../../../lib/types';
@@ -291,7 +291,7 @@ export function MarketSupplierDetail() {
               <ul className="space-y-1.5 text-sm">
                 {files.map((f, i) => (
                   <li key={i}>
-                    <a href={f.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 hover:underline">
+                    <a href={fileHref(f.url)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 hover:underline">
                       <Icon name="file" className="h-4 w-4 text-muted" /> {f.name} <span className="text-xs text-muted">({f.g})</span>
                     </a>
                   </li>

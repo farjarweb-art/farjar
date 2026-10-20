@@ -1,3 +1,4 @@
+import { fileHref } from '../../lib/api';
 import { useCallback, useEffect, useState } from 'react';
 import { Icon, Modal } from '../ui';
 import type { BookingMedia } from './types';
@@ -62,7 +63,7 @@ export function MediaGallery({ media }: { media: BookingMedia[] }) {
           {docs.map((d) => (
             <li key={d.id}>
               <a
-                href={d.url}
+                href={fileHref(d.url)}
                 target="_blank"
                 rel="noopener noreferrer"
                 download
@@ -104,7 +105,7 @@ export function MediaGallery({ media }: { media: BookingMedia[] }) {
                 </>
               )}
             </div>
-            <a href={current.url} target="_blank" rel="noopener noreferrer" download className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-700 hover:underline dark:text-brand-200">
+            <a href={fileHref(current.url)} target="_blank" rel="noopener noreferrer" download className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-700 hover:underline dark:text-brand-200">
               <Icon name="download" className="h-4 w-4" /> تحميل الصورة الأصلية
             </a>
           </div>

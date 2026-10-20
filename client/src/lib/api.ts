@@ -86,3 +86,13 @@ export function toFormData(data: unknown, files: Record<string, File[] | File | 
   }
   return fd;
 }
+
+/**
+ * رابط فتح ملف مرفوع: ملفات PDF/CAD على Cloudinary تُفتح عبر السيرفر برابط موقّع
+ * (الحساب المجاني يمنع عرضها بالرابط المباشر). الصور والروابط الأخرى كما هي.
+ */
+export function fileHref(url: string, name?: string | null): string {
+  if (!/^https:\/\/res\.cloudinary\.com\/[^/]+\/raw\/upload\//.test(url)) return url;
+  const q = new URLSearchParams({ u: url, ...(name ? { name } : {}) });
+  return `${BASE}/files/raw?${q}`;
+}

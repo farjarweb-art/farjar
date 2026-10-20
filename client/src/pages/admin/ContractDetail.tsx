@@ -4,7 +4,7 @@ import { ContractFieldsForm, ContractStatusTag, type ContractDisplay, type Contr
 import { useAdminQuery, useMutation } from '../../components/admin/hooks';
 import { AdminPage, DefList, DetailSkeleton, Panel, StatTile } from '../../components/admin/ui';
 import { Button, ErrorState, Input, Modal, StatusBadge, Tag } from '../../components/ui';
-import { api } from '../../lib/api';
+import { api, fileHref } from '../../lib/api';
 import { formatDate, formatJOD, todayAmman } from '../../lib/format';
 import type { RequestStatus } from '../../lib/types';
 import { useI18n } from '../../lib/i18n';
@@ -187,7 +187,7 @@ export default function ContractDetail() {
                 )}
                 {c.quoteFiles.map((f) => (
                   <li key={f.id} className="flex items-center justify-between gap-2 px-4 py-3 sm:px-5">
-                    <a href={f.url} target="_blank" rel="noopener noreferrer" className="font-medium hover:underline">
+                    <a href={fileHref(f.url)} target="_blank" rel="noopener noreferrer" className="font-medium hover:underline">
                       {f.title}
                     </a>
                     <span className="text-sm text-muted">

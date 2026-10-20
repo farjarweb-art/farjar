@@ -5,7 +5,7 @@ import { MessageThread } from '../../components/market/MessageThread';
 import { StarInput, Stars } from '../../components/market/Stars';
 import { Alert, Breadcrumbs, Button, ButtonLink, EmptyState, ErrorState, Icon, Modal, PageLoader, Tag, Textarea } from '../../components/ui';
 import { useToast } from '../../context/ToastContext';
-import { ApiError, api } from '../../lib/api';
+import { ApiError, api, fileHref } from '../../lib/api';
 import { cx, formatDate, formatJOD } from '../../lib/format';
 import { QUOTE_STATUS_LABEL, RFQ_STATUS_LABEL, leadTimeText, rfqTone, type MarketFile, type QuoteStatus, type RfqStatus } from '../../lib/market';
 import { useAsync, useDocumentTitle } from '../../lib/useAsync';
@@ -371,7 +371,7 @@ function RfqView({ rfq, reload }: { rfq: Rfq; reload: () => void }) {
               <ul className="mt-3 space-y-1.5 text-sm">
                 {rfq.attachments.map((f, i) => (
                   <li key={i}>
-                    <a href={f.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 hover:underline">
+                    <a href={fileHref(f.url)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 hover:underline">
                       <Icon name={f.kind === 'IMAGE' ? 'image' : 'file'} className="h-4 w-4 text-muted" /> <span className="truncate">{f.name}</span>
                     </a>
                   </li>

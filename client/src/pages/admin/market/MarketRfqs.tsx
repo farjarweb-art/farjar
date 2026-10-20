@@ -6,7 +6,7 @@ import { AdminPage, DefList, DetailSkeleton, FilterBar, FilterInput, FilterSelec
 import { PlanBadge, VerifiedMark } from '../../../components/market/Badges';
 import { MessageThread } from '../../../components/market/MessageThread';
 import { Alert, Button, Checkbox, ErrorState, Icon, Input, Modal, Select, Tag, Textarea } from '../../../components/ui';
-import { api } from '../../../lib/api';
+import { api, fileHref } from '../../../lib/api';
 import { formatDate, formatJOD } from '../../../lib/format';
 import { QUOTE_STATUS_LABEL, REVENUE_MODE_LABEL, RFQ_EVENT_LABEL, RFQ_STATUS_LABEL, leadTimeText, rfqTone, type MarketFile, type QuoteStatus, type RfqStatus } from '../../../lib/market';
 import type { Category, Paged } from '../../../lib/types';
@@ -248,7 +248,7 @@ export function MarketRfqDetail() {
               <ul className="mt-3 flex flex-wrap gap-2 text-sm">
                 {r.attachments.map((f, i) => (
                   <li key={i}>
-                    <a href={f.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 hover:border-ink">
+                    <a href={fileHref(f.url)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 hover:border-ink">
                       <Icon name={f.kind === 'IMAGE' ? 'image' : 'file'} className="h-4 w-4" /> {f.name}
                     </a>
                   </li>

@@ -4,7 +4,7 @@ import { useAdminQuery, useMutation } from '../../components/admin/hooks';
 import { AdminPage, DefList, DetailSkeleton, Panel } from '../../components/admin/ui';
 import { PriceSummary } from '../../components/services/PriceSummary';
 import { Button, ButtonLink, Checkbox, ErrorState, Icon, Input, Select, Tag, Textarea } from '../../components/ui';
-import { api } from '../../lib/api';
+import { api, fileHref } from '../../lib/api';
 import { displayPhone, formatDate, formatDateShort, formatJOD } from '../../lib/format';
 import { POLICY_TEXT, QUOTE_STATUS_LABEL, QUOTE_TITLES, isDocumentMedia, TIER_LABEL, statusTone, type QuoteItem, type RequestCore, type RequestMedia, type ServiceQuote, type SrStatus } from '../../lib/siteServices';
 import { useDocumentTitle } from '../../lib/useAsync';
@@ -258,7 +258,7 @@ function MediaGrid({ items, onDelete }: { items: RequestMedia[]; onDelete?: (m: 
           {x.kind === 'VIDEO' ? (
             <video src={x.url} controls className="aspect-square w-full rounded-lg bg-black object-cover" />
           ) : (
-            <a href={x.url} target="_blank" rel="noopener noreferrer">
+            <a href={fileHref(x.url)} target="_blank" rel="noopener noreferrer">
               <img src={x.url} alt="" className="aspect-square w-full rounded-lg object-cover" />
             </a>
           )}
@@ -498,7 +498,7 @@ function DocumentsPanel({ request: r, onChanged }: { request: Detail; onChanged:
         <ul className="mb-4 divide-y divide-line">
           {docs.map((d) => (
             <li key={d.id} className="flex items-center justify-between gap-3 py-2 text-[15px]">
-              <a href={d.url} target="_blank" rel="noopener noreferrer" className="flex min-w-0 items-center gap-2 hover:underline">
+              <a href={fileHref(d.url)} target="_blank" rel="noopener noreferrer" className="flex min-w-0 items-center gap-2 hover:underline">
                 <Icon name="file" className="h-4 w-4 shrink-0" />
                 <span className="truncate">{d.originalName ?? 'ملف'}</span>
               </a>

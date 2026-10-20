@@ -4,7 +4,7 @@ import { AdminPage, DetailSkeleton, Panel } from '../../components/admin/ui';
 import { LocationPicker } from '../../components/forms/LocationPicker';
 import { Button, ErrorState, Icon, Input, Textarea } from '../../components/ui';
 import { useAuth } from '../../context/Auth';
-import { api } from '../../lib/api';
+import { api, fileHref } from '../../lib/api';
 import { useDocumentTitle } from '../../lib/useAsync';
 import type { VendorMe, VendorProfile as Profile } from './types';
 import type { Category } from '../../lib/types';
@@ -193,7 +193,7 @@ function CompanyFiles({ kind, title, initial }: { kind: 'catalog' | 'certificate
         <ul className="mb-3 space-y-1.5 text-sm">
           {files.map((f, i) => (
             <li key={i} className="flex items-center justify-between gap-2">
-              <a href={f.url} target="_blank" rel="noopener noreferrer" className="flex min-w-0 items-center gap-2 hover:underline">
+              <a href={fileHref(f.url)} target="_blank" rel="noopener noreferrer" className="flex min-w-0 items-center gap-2 hover:underline">
                 <Icon name="file" className="h-4 w-4 shrink-0 text-muted" />
                 <span className="truncate">{f.name}</span>
               </a>

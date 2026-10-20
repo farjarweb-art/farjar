@@ -4,7 +4,7 @@ import { useAdminQuery, useMutation } from '../../components/admin/hooks';
 import { AdminPage, DetailSkeleton, Panel, StatTile } from '../../components/admin/ui';
 import { MessageThread } from '../../components/market/MessageThread';
 import { Alert, Button, EmptyState, ErrorState, Icon, Input, Modal, Select, SkeletonRows, Tag, Textarea } from '../../components/ui';
-import { api, toFormData } from '../../lib/api';
+import { api, toFormData, fileHref } from '../../lib/api';
 import { cx, formatDate, formatJOD } from '../../lib/format';
 import {
   AD_STATUS_LABEL,
@@ -281,7 +281,7 @@ export function VendorRfqDetail({ approved }: { approved: boolean }) {
               <ul className="mt-3 flex flex-wrap gap-2 text-sm">
                 {r.attachments.map((f, i) => (
                   <li key={i}>
-                    <a href={f.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 hover:border-ink">
+                    <a href={fileHref(f.url)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 hover:border-ink">
                       <Icon name={f.kind === 'IMAGE' ? 'image' : 'file'} className="h-4 w-4" /> {f.name}
                     </a>
                   </li>

@@ -7,7 +7,7 @@ import { ShareProduct } from '../../components/store/ShareProduct';
 import { Breadcrumbs, Button, ButtonLink, EmptyState, ErrorState, Icon, Price, SectionHeading, Skeleton, type Crumb } from '../../components/ui';
 import { useCart } from '../../context/CartContext';
 import { useToast } from '../../context/ToastContext';
-import { api } from '../../lib/api';
+import { api, fileHref } from '../../lib/api';
 import { cx, formatJOD } from '../../lib/format';
 import { variantText, type Media, type Product } from '../../lib/types';
 import { useAsync, useDocumentTitle } from '../../lib/useAsync';
@@ -302,7 +302,7 @@ function ProductView({ product, related }: ProductResponse) {
                   <ul className="mt-3 space-y-2">
                     {product.documents!.map((d, i) => (
                       <li key={i}>
-                        <a href={d.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 rounded-lg border border-line px-3 py-2.5 text-sm hover:border-ink">
+                        <a href={fileHref(d.url)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 rounded-lg border border-line px-3 py-2.5 text-sm hover:border-ink">
                           <Icon name="download" className="h-4 w-4 shrink-0 text-primary" />
                           <span className="min-w-0 truncate">{d.name}</span>
                         </a>

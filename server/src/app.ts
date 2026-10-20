@@ -15,6 +15,7 @@ import { adminRouter } from './routes/admin';
 import { authRouter } from './routes/auth';
 import { accountRouter } from './routes/customer/account';
 import { bookingsRouter } from './routes/public/bookings';
+import { filesRouter } from './routes/public/files';
 import { customerServiceRequestsRouter } from './routes/customer/serviceRequests';
 import { siteServicesRouter } from './routes/public/siteServices';
 import { corporateRouter } from './routes/public/corporate';
@@ -76,6 +77,7 @@ export function createApp() {
   api.use(originGuard);
   api.use(attachSession);
   api.use('/site', siteRouter);
+  api.use('/files', filesRouter);
   api.use('/bookings', bookingsRouter);
   api.use('/store', storeRouter);
   api.use('/corporate', corporateRouter);

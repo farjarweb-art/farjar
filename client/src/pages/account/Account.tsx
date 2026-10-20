@@ -25,7 +25,7 @@ import { NotificationsBell } from '../../components/NotificationsBell';
 import { isAdminUser, useAuth } from '../../context/Auth';
 import { useCustomer } from '../../context/CustomerAuth';
 import { useToast } from '../../context/ToastContext';
-import { ApiError, api } from '../../lib/api';
+import { ApiError, api, fileHref } from '../../lib/api';
 import {
   BOOKING_TYPE_LABEL,
   CORPORATE_TYPE_LABEL,
@@ -618,7 +618,7 @@ function FilesTab({ items }: { items: OFile[] }) {
                 {f.amount != null && <> · {formatJOD(f.amount)}</>}
               </p>
             </div>
-            <ButtonA href={f.url} target="_blank" rel="noopener noreferrer" variant="outline" className="w-full sm:w-auto">
+            <ButtonA href={fileHref(f.url)} target="_blank" rel="noopener noreferrer" variant="outline" className="w-full sm:w-auto">
               <Icon name="download" className="h-4 w-4" /> تحميل
             </ButtonA>
           </li>

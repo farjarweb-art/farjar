@@ -3,7 +3,7 @@ import { AwardBadge, PlanBadge, VerifiedMark, activeAward } from '../../componen
 import { Stars } from '../../components/market/Stars';
 import { PRODUCT_GRID, ProductCard, ProductGridSkeleton } from '../../components/store/ProductCard';
 import { ButtonLink, EmptyState, ErrorState, Icon, Pagination, Skeleton } from '../../components/ui';
-import { api } from '../../lib/api';
+import { api, fileHref } from '../../lib/api';
 import { formatDate } from '../../lib/format';
 import type { MarketFile } from '../../lib/market';
 import type { Paged, Product } from '../../lib/types';
@@ -153,7 +153,7 @@ export default function VendorStore() {
                 <ul className="space-y-2 text-sm">
                   {files.map((f, i) => (
                     <li key={i}>
-                      <a href={f.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 hover:underline">
+                      <a href={fileHref(f.url)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 hover:underline">
                         <Icon name="file" className="h-4 w-4 shrink-0 text-primary" />
                         <span className="min-w-0 truncate">{f.name}</span>
                         <span className="ms-auto shrink-0 text-xs text-muted">{f.group}</span>

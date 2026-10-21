@@ -13,6 +13,10 @@ export function previewImage(url: string): string {
   return abs.replace(/^(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)/, '$1c_pad,b_white,w_1200,h_630,f_jpg,q_auto/');
 }
 
+/** زواحف معاينة الروابط (فيسبوك، واتساب، تيليجرام…) — تأخذ صفحة البيانات فقط بلا تحويل */
+const PREVIEW_BOTS = /facebookexternalhit|facebot|meta-externalagent|whatsapp|telegrambot|twitterbot|linkedinbot|slackbot|discordbot|pinterest|skypeuripreview|viber|snapchat|embedly|redditbot|applebot|google-inspectiontool/i;
+export const isPreviewBot = (ua: string | undefined) => !!ua && PREVIEW_BOTS.test(ua);
+
 const money = (n: number) => `${n.toFixed(3).replace(/\.?0+$/, '')} د.أ`;
 
 /**
@@ -42,6 +46,12 @@ export async function shareProduct(req: Request, res: Response) {
   }
   const target = `${site}/store/${encodeURIComponent(product.slug)}`;
   const shareUrl = `${site}/p/${encodeURIComponent(product.slug)}`;
+  // الزائر يُحوَّل فورًا لصفحة المنتج. زواحف المعاينة لا تُحوَّل (فيسبوك يتبع التحويل فيقرأ صفحة الموقع العامة
+  // ويعرض نفس الصورة والعنوان لكل المنتجات)
+  if (!isPreviewBot(req.get('user-agent'))) {
+    res.set('Cache-Control', 'no-store').redirect(302, target);
+    return;
+  }
   const finalPrice = Number(product.finalPrice);
   const priceText = product.priceOnRequest
     ? 'السعر عند الطلب'
@@ -60,7 +70,7 @@ export async function shareProduct(req: Request, res: Response) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(description)}">
-<link rel="canonical" href="${esc(target)}">
+<link rel="canonical" href="${esc(shareUrl)}">
 <meta property="og:type" content="product">
 <meta property="og:site_name" content="${esc(BRAND_NAME)}">
 <meta property="og:locale" content="ar_JO">
@@ -69,16 +79,18 @@ export async function shareProduct(req: Request, res: Response) {
 <meta property="og:description" content="${esc(description)}">
 <meta property="og:image" content="${esc(image)}">
 <meta property="og:image:alt" content="${esc(product.name)}">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
 ${product.priceOnRequest ? '' : `<meta property="product:price:amount" content="${finalPrice.toFixed(3)}">\n<meta property="product:price:currency" content="JOD">\n`}<meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="${esc(title)}">
 <meta name="twitter:description" content="${esc(description)}">
 <meta name="twitter:image" content="${esc(image)}">
-<meta http-equiv="refresh" content="0; url=${esc(target)}">
 </head>
 <body style="font-family:system-ui,sans-serif;text-align:center;padding:40px 16px">
-<p>جارٍ فتح المنتج…</p>
-<p><a href="${esc(target)}">${esc(product.name)}</a></p>
+<h1>${esc(product.name)}</h1>
+<p>${esc(priceText)}</p>
+<p><a href="${esc(target)}">عرض المنتج</a></p>
 </body>
 </html>`;
-  res.set('Content-Type', 'text/html; charset=utf-8').set('Cache-Control', 'public, max-age=600').send(html);
+  res.set('Content-Type', 'text/html; charset=utf-8').set('Cache-Control', 'no-store').set('Vary', 'User-Agent').send(html);
 }

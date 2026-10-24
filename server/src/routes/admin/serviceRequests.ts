@@ -7,6 +7,7 @@ import { prisma } from '../../lib/prisma';
 import { ammanToUtc } from '../../lib/time';
 import { memoryUpload, uploadGuard } from '../../middleware/upload';
 import { notify } from '../../services/notifications.service';
+import { effectiveTotal, onsiteOptions, priceOnsite } from '../../services/servicePricing';
 import { CLIENT_TYPE_AR, REQUEST_TYPE_AR, SR_FLOW, SR_STATUS_AR, VISITED, advanceStatus, logEvent } from '../../services/siteServices.service';
 import { POLICIES, deleteStored, validateAndStore, validateFile } from '../../services/upload.service';
 import { dateField, timeField } from '../../validators/common';
@@ -62,13 +63,13 @@ serviceRequestsAdminRouter.get(
         orderBy: { createdAt: 'desc' },
         skip: (q.page - 1) * q.pageSize,
         take: q.pageSize,
-        select: { id: true, number: true, ref: true, status: true, requestType: true, name: true, phone: true, clientType: true, zoneName: true, tier: true, services: true, scheduledAt: true, total: true, needsApproval: true, urgency: true, createdAt: true, technician: { select: { id: true, name: true } } },
+        select: { id: true, number: true, ref: true, status: true, requestType: true, name: true, phone: true, clientType: true, zoneName: true, tier: true, services: true, scheduledAt: true, total: true, needsApproval: true, urgency: true, finalTotal: true, createdAt: true, technician: { select: { id: true, name: true } } },
       }),
       prisma.serviceRequest.count({ where }),
       prisma.serviceRequest.groupBy({ by: ['status'], where: { deletedAt: null }, _count: true }),
     ]);
     ok(res, {
-      items: items.map((r) => ({ ...r, total: Number(r.total), statusLabel: SR_STATUS_AR[r.status], requestTypeLabel: REQUEST_TYPE_AR[r.requestType] })),
+      items: items.map((r) => ({ ...r, total: effectiveTotal(r), finalTotal: undefined, statusLabel: SR_STATUS_AR[r.status], requestTypeLabel: REQUEST_TYPE_AR[r.requestType] })),
       total,
       page: q.page,
       pageSize: q.pageSize,
@@ -84,28 +85,31 @@ serviceRequestsAdminRouter.get(
     const q = z.object({ from: dateField.optional(), to: dateField.optional() }).parse(req.query);
     const createdAt = q.from || q.to ? { ...(q.from ? { gte: ammanToUtc(q.from, '00:00') } : {}), ...(q.to ? { lt: new Date(ammanToUtc(q.to, '00:00').getTime() + 86400_000) } : {}) } : undefined;
     const base = { deletedAt: null, ...(createdAt ? { createdAt } : {}) };
-    const [booked, visited, cancelled, byStatus, quotes, rows] = await Promise.all([
-      prisma.serviceRequest.aggregate({ where: { ...base, status: { not: 'CANCELLED' } }, _sum: { total: true }, _count: true }),
-      prisma.serviceRequest.aggregate({ where: { ...base, status: { in: VISITED } }, _sum: { total: true }, _count: true }),
+    const [cancelled, byStatus, quotes, rows] = await Promise.all([
       prisma.serviceRequest.count({ where: { ...base, status: 'CANCELLED' } }),
       prisma.serviceRequest.groupBy({ by: ['status'], where: base, _count: true }),
       prisma.serviceQuote.aggregate({ where: { status: 'ACCEPTED', request: base }, _sum: { total: true }, _count: true }),
-      prisma.serviceRequest.findMany({ where: { ...base, status: { not: 'CANCELLED' } }, select: { services: true, total: true } }),
+      prisma.serviceRequest.findMany({ where: { ...base, status: { not: 'CANCELLED' } }, select: { services: true, total: true, finalTotal: true, status: true } }),
     ]);
+    // الإجمالي الفعلي بعد تعديلات الموقع (أجهزة إضافية / خصم)
+    const visitedRows = rows.filter((r) => VISITED.includes(r.status));
+    const sum = (list: typeof rows) => r3(list.reduce((n, r) => n + effectiveTotal(r), 0));
+    const booked = { _count: rows.length, total: sum(rows) };
+    const visited = { _count: visitedRows.length, total: sum(visitedRows) };
     const byService = new Map<string, { name: string; count: number; total: number }>();
     for (const r of rows) {
       const main = (r.services as { id: string; name: string }[])[0];
       if (!main) continue;
       const e = byService.get(main.id) ?? { name: main.name, count: 0, total: 0 };
       e.count += 1;
-      e.total = r3(e.total + Number(r.total));
+      e.total = r3(e.total + effectiveTotal(r));
       byService.set(main.id, e);
     }
     ok(res, {
       requests: booked._count,
-      bookedFees: Number(booked._sum.total ?? 0),
+      bookedFees: booked.total,
       visits: visited._count,
-      visitFees: Number(visited._sum.total ?? 0),
+      visitFees: visited.total,
       cancelled,
       repairsApproved: quotes._count,
       repairsValue: Number(quotes._sum.total ?? 0),
@@ -139,9 +143,13 @@ serviceRequestsAdminRouter.get(
       }),
       prisma.technician.findMany({ where: { active: true }, orderBy: { name: 'asc' }, select: { id: true, name: true, specialty: true } }),
     ]);
+    const onsite = await onsiteOptions((r.services as { id: string }[])[0]?.id, (r.devices as { id: string }[]).map((d) => d.id));
     ok(res, {
       ...r,
       total: Number(r.total),
+      manualDiscount: Number(r.manualDiscount),
+      finalTotal: r.finalTotal == null ? null : Number(r.finalTotal),
+      onsiteOptions: onsite.map(({ accessories, ...o }) => ({ ...o, accessoryNames: accessories.map((a) => a.name) })),
       statusLabel: SR_STATUS_AR[r.status],
       requestTypeLabel: REQUEST_TYPE_AR[r.requestType],
       clientTypeLabel: CLIENT_TYPE_AR[r.clientType],
@@ -222,6 +230,42 @@ serviceRequestsAdminRouter.post(
 );
 
 // ───── التقرير الفني ─────
+
+/** تعديل الطلب في الموقع: أجهزة استُخدمت ميدانيًا بسعرها المعياري + خصم يدوي اختياري. السعر المعتمد وقت الحجز يبقى كما هو */
+const adjustInput = z.object({
+  deviceIds: z.array(z.string().max(40)).max(30).default([]),
+  manualDiscount: z.coerce.number({ invalid_type_error: 'أدخل مبلغ خصم صحيح' }).min(0, 'الخصم لا يكون سالبًا').max(100_000).default(0),
+  note: z.string().trim().max(500).optional(),
+});
+
+serviceRequestsAdminRouter.put(
+  '/:id/adjustment',
+  asyncHandler(async (req, res) => {
+    const input = adjustInput.parse(req.body);
+    const r = await load(req.params.id);
+    if (r.status === 'CANCELLED') throw badRequest('لا يمكن تعديل طلب ملغي');
+    const p = await priceOnsite(r, input.deviceIds, input.manualDiscount);
+    const a = actor(req);
+    const changed = p.devices.length > 0 || p.discount > 0;
+    await prisma.$transaction(async (tx) => {
+      await tx.serviceRequest.update({
+        where: { id: r.id },
+        data: {
+          onsiteDevices: p.devices as Prisma.InputJsonValue,
+          manualDiscount: new Prisma.Decimal(p.discount),
+          finalTotal: changed ? new Prisma.Decimal(p.finalTotal) : null,
+          adjustmentNote: input.note || null,
+          adjustedAt: changed ? new Date() : null,
+          adjustedByName: changed ? a.name : null,
+        },
+      });
+      const parts = [p.devices.filter((d) => !d.auto).length ? `أجهزة: ${p.devices.map((d) => d.name).join('، ')} (+${p.added} د.أ)` : '', p.discount ? `خصم ${p.discount} د.أ` : ''].filter(Boolean);
+      await logEvent(tx, r.id, { kind: 'adjustment', note: changed ? `تعديل في الموقع — ${parts.join(' · ')} — الإجمالي النهائي ${p.finalTotal} د.أ` : 'إلغاء تعديلات الموقع — العودة للسعر المعتمد', actorId: a.id, actorName: a.name });
+    });
+    await audit({ actorType: 'admin', actorId: req.auth!.sub, action: 'onsite_adjustment', entity: 'service_request', entityId: r.id, meta: { devices: p.devices.map((d) => d.id), discount: p.discount, finalTotal: p.finalTotal } });
+    ok(res, { ...p, finalTotal: changed ? p.finalTotal : null });
+  }),
+);
 
 const reportInput = z.object({
   findings: z.string().trim().max(10_000).default(''),
@@ -334,11 +378,11 @@ const quoteInput = z.object({
   send: z.boolean().optional(),
 });
 
-function quoteTotals(r: { total: Prisma.Decimal; visitFeePolicy: string }, input: z.infer<typeof quoteInput>) {
+function quoteTotals(r: { total: Prisma.Decimal; finalTotal: Prisma.Decimal | null; visitFeePolicy: string }, input: z.infer<typeof quoteInput>) {
   const items = input.items.map((i) => ({ ...i, qty: r3(i.qty), unitPrice: r3(i.unitPrice) }));
   const subtotal = r3(items.reduce((n, i) => n + i.qty * i.unitPrice, 0));
   const deduct = input.deductVisitFee ?? r.visitFeePolicy === 'DEDUCTIBLE';
-  const visitFeeDeduction = deduct ? Math.min(Number(r.total), subtotal) : 0;
+  const visitFeeDeduction = deduct ? Math.min(effectiveTotal(r), subtotal) : 0;
   return { items, subtotal, visitFeeDeduction: r3(visitFeeDeduction), total: r3(subtotal - visitFeeDeduction) };
 }
 

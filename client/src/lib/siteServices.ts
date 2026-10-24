@@ -297,7 +297,25 @@ export type RequestCore = {
   report: ServiceReport | null;
   quotes: ServiceQuote[];
   technician: { id?: string; name: string; phone?: string } | null;
+  /** تعديل الموقع: أجهزة أُضيفت ميدانيًا + خصم يدوي (السعر المعتمد يبقى كما هو) */
+  onsiteDevices?: OnsiteDevice[];
+  manualDiscount?: number;
+  finalTotal?: number | null;
+  adjustmentNote?: string | null;
+  adjustedAt?: string | null;
+  adjustedByName?: string | null;
 };
+
+export type OnsiteDevice = { id: string; name: string; fee: number; auto?: boolean };
+
+/** الفاتورة النهائية: بنود الحجز + أجهزة الموقع − الخصم اليدوي */
+export function finalPricing(r: Pick<RequestCore, 'priceLines' | 'total' | 'onsiteDevices' | 'manualDiscount' | 'finalTotal'>) {
+  const adjusted = r.finalTotal != null;
+  const lines: PriceLine[] = [...r.priceLines];
+  for (const d of r.onsiteDevices ?? []) lines.push({ kind: 'device', label: d.auto ? `${d.name} — مع الجهاز المضاف` : `أُضيف في الموقع: ${d.name}`, amount: d.fee });
+  if (r.manualDiscount) lines.push({ kind: 'discount', label: 'خصم إضافي', amount: -r.manualDiscount });
+  return { adjusted, lines, total: r.finalTotal ?? r.total };
+}
 
 export const POLICY_TEXT: Record<VisitFeePolicy, string> = {
   DEDUCTIBLE: 'رسوم الزيارة تُخصم من قيمة أعمال الإصلاح عند الموافقة على تنفيذها.',

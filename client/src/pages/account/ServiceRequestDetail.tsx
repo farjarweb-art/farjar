@@ -5,7 +5,7 @@ import { Breadcrumbs, Button, ButtonLink, ErrorState, Icon, Modal, Skeleton, Tag
 import { useToast } from '../../context/ToastContext';
 import { ApiError, api, fileHref } from '../../lib/api';
 import { cx, formatDate, formatJOD } from '../../lib/format';
-import { CLIENT_TYPE_LABEL, URGENCY_LABEL, POLICY_TEXT, isDocumentMedia, QUOTE_STATUS_LABEL, STATUS_FLOW, STATUS_LABEL, TIER_LABEL, statusTone, type RequestCore, type SrStatus } from '../../lib/siteServices';
+import { CLIENT_TYPE_LABEL, URGENCY_LABEL, POLICY_TEXT, finalPricing, isDocumentMedia, QUOTE_STATUS_LABEL, STATUS_FLOW, STATUS_LABEL, TIER_LABEL, statusTone, type RequestCore, type SrStatus } from '../../lib/siteServices';
 import { useAsync, useDocumentTitle } from '../../lib/useAsync';
 
 type Detail = RequestCore & {
@@ -182,8 +182,23 @@ export default function ServiceRequestDetail() {
           )}
         </section>
         <div className="space-y-4">
-          <PriceSummary lines={r.priceLines} total={r.total} title="السعر المعتمد للزيارة" />
-          <p className="text-sm text-muted">السعر ثابت كما وافقت عليه بتاريخ {formatDate(r.termsAcceptedAt)}. {POLICY_TEXT[r.visitFeePolicy]}</p>
+          {r.finalTotal != null ? (
+            <>
+              <PriceSummary lines={finalPricing(r).lines} total={r.finalTotal} title="الفاتورة النهائية للزيارة" />
+              <p className="text-sm text-muted">
+                أُضيفت فحوصات استُخدمت أثناء الزيارة{r.manualDiscount ? ' وخصم إضافي' : ''}. السعر الذي وافقت عليه عند الحجز كان {formatJOD(r.total)}.
+                {r.adjustmentNote ? ` ${r.adjustmentNote}` : ''}
+              </p>
+            </>
+          ) : (
+            <>
+              <PriceSummary lines={r.priceLines} total={r.total} title="السعر المعتمد للزيارة" />
+              <p className="text-sm text-muted">السعر ثابت كما وافقت عليه بتاريخ {formatDate(r.termsAcceptedAt)}. {POLICY_TEXT[r.visitFeePolicy]}</p>
+            </>
+          )}
+          <ButtonLink size="sm" variant="outline" to={`/account/services/${r.id}/print?doc=invoice`}>
+            <Icon name="download" className="h-4 w-4" /> فاتورة الزيارة PDF
+          </ButtonLink>
         </div>
       </div>
 

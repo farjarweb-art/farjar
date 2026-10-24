@@ -24,11 +24,11 @@ customerServiceRequestsRouter.get(
       where: { customerId: req.auth!.sub, deletedAt: null },
       orderBy: { createdAt: 'desc' },
       take: 100,
-      select: { id: true, number: true, ref: true, status: true, requestType: true, services: true, scheduledAt: true, total: true, zoneName: true, createdAt: true, report: { select: { published: true } }, quotes: { where: { status: 'SENT' }, select: { id: true } } },
+      select: { id: true, number: true, ref: true, status: true, requestType: true, services: true, scheduledAt: true, total: true, finalTotal: true, zoneName: true, createdAt: true, report: { select: { published: true } }, quotes: { where: { status: 'SENT' }, select: { id: true } } },
     });
     ok(
       res,
-      rows.map(({ report, quotes, ...r }) => ({ ...r, total: Number(r.total), statusLabel: SR_STATUS_AR[r.status], requestTypeLabel: REQUEST_TYPE_AR[r.requestType], hasReport: !!report?.published, pendingQuotes: quotes.length })),
+      rows.map(({ report, quotes, finalTotal, ...r }) => ({ ...r, total: Number(finalTotal ?? r.total), statusLabel: SR_STATUS_AR[r.status], requestTypeLabel: REQUEST_TYPE_AR[r.requestType], hasReport: !!report?.published, pendingQuotes: quotes.length })),
     );
   }),
 );
@@ -51,6 +51,8 @@ customerServiceRequestsRouter.get(
     ok(res, {
       ...rest,
       total: Number(r.total),
+      manualDiscount: Number(r.manualDiscount),
+      finalTotal: r.finalTotal == null ? null : Number(r.finalTotal),
       statusLabel: SR_STATUS_AR[r.status],
       requestTypeLabel: REQUEST_TYPE_AR[r.requestType],
       canCancel: CUSTOMER_CANCELLABLE.includes(r.status),

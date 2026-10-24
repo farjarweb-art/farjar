@@ -68,7 +68,7 @@ export const isBefore = (a: ServiceRequestStatus, b: ServiceRequestStatus) => SR
 export async function logEvent(
   db: Db,
   requestId: string,
-  e: { kind: 'created' | 'status' | 'schedule' | 'technician' | 'work' | 'note' | 'report' | 'quote'; from?: ServiceRequestStatus | null; to?: ServiceRequestStatus | null; note?: string | null; actorId?: string | null; actorName?: string | null },
+  e: { kind: 'created' | 'status' | 'schedule' | 'technician' | 'work' | 'note' | 'report' | 'quote' | 'adjustment'; from?: ServiceRequestStatus | null; to?: ServiceRequestStatus | null; note?: string | null; actorId?: string | null; actorName?: string | null },
 ) {
   await db.serviceRequestEvent.create({
     data: { requestId, kind: e.kind, fromStatus: e.from ?? null, toStatus: e.to ?? null, note: e.note ?? null, actorId: e.actorId ?? null, actorName: e.actorName ?? null },

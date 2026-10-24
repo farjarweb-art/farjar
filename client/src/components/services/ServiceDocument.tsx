@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { useSite } from '../../context/SiteContext';
 import { BRAND } from '../../lib/brand';
 import { displayPhone, formatDate, formatJOD } from '../../lib/format';
-import { CLIENT_TYPE_LABEL, TIER_LABEL, URGENCY_LABEL, mapsLink, type RequestCore, type ServiceQuote } from '../../lib/siteServices';
+import { CLIENT_TYPE_LABEL, POLICY_TEXT, TIER_LABEL, URGENCY_LABEL, finalPricing, mapsLink, type RequestCore, type ServiceQuote } from '../../lib/siteServices';
 import { LogoMark } from '../layout/Logo';
 import { Button, Icon } from '../ui';
 
@@ -10,10 +10,10 @@ import { Button, Icon } from '../ui';
  * التقرير الفني أو عرض سعر الإصلاح بصيغة قابلة للطباعة — زر "تحميل PDF" يفتح نافذة الطباعة
  * (اختر "حفظ كـ PDF"). نفس المستند للعميل وللإدارة.
  */
-export function ServiceDocument({ request: r, kind, quote, back }: { request: RequestCore; kind: 'report' | 'quote'; quote?: ServiceQuote | null; back?: ReactNode }) {
+export function ServiceDocument({ request: r, kind, quote, back }: { request: RequestCore; kind: 'report' | 'quote' | 'invoice'; quote?: ServiceQuote | null; back?: ReactNode }) {
   const { settings } = useSite();
   const report = r.report;
-  const title = kind === 'report' ? 'تقرير فني' : `عرض سعر${quote?.title ? ` — ${quote.title}` : ' إصلاح'} رقم ${quote?.number ?? ''}`;
+  const title = kind === 'report' ? 'تقرير فني' : kind === 'invoice' ? 'فاتورة زيارة المعاينة' : `عرض سعر${quote?.title ? ` — ${quote.title}` : ' إصلاح'} رقم ${quote?.number ?? ''}`;
   const photos = r.media.filter((m) => m.purpose === 'report' && m.kind === 'IMAGE');
 
   return (
@@ -64,7 +64,7 @@ export function ServiceDocument({ request: r, kind, quote, back }: { request: Re
             ['نوع الطلب', r.requestTypeLabel],
             ['المشكلة / الخدمات', r.problems.map((p) => p.name).join('، ') || r.description],
             ['مكان المشكلة', r.problemLocation],
-            ['الفحوصات والأجهزة', (kind === 'report' && report?.devicesUsed) || r.devices.map((d) => d.name).join('، ') || 'المعاينة الأساسية'],
+            ['الفحوصات والأجهزة', (kind === 'report' && report?.devicesUsed) || [...r.devices, ...(r.onsiteDevices ?? [])].map((d) => d.name).join('، ') || 'المعاينة الأساسية'],
             ['الفني', r.technician?.name],
           ]}
         />
@@ -104,6 +104,8 @@ export function ServiceDocument({ request: r, kind, quote, back }: { request: Re
           )}
         </>
       )}
+
+      {(kind === 'invoice' || (kind === 'report' && report)) && <InvoiceSection request={r} />}
 
       {kind === 'quote' && quote && (
         <Section title={quote.title ? `بنود العرض — ${quote.title}` : 'بنود أعمال الإصلاح'}>
@@ -188,5 +190,44 @@ function Grid({ rows }: { rows: [string, ReactNode][] }) {
           </div>
         ))}
     </dl>
+  );
+}
+
+/** بنود تكلفة الزيارة: الحجز + أجهزة الموقع − الخصم = الإجمالي النهائي */
+function InvoiceSection({ request: r }: { request: RequestCore }) {
+  const f = finalPricing(r);
+  return (
+    <Section title={f.adjusted ? 'التكلفة النهائية للزيارة' : 'تكلفة الزيارة'}>
+      <table className="w-full border-collapse text-sm">
+        <thead>
+          <tr className="border-b border-black">
+            <th className="py-2 text-start">البند</th>
+            <th className="w-28 py-2 text-end">المبلغ</th>
+          </tr>
+        </thead>
+        <tbody>
+          {f.lines.map((l, i) => (
+            <tr key={i} className="border-b border-black/20">
+              <td className="py-1.5">{l.label}</td>
+              <td className="py-1.5 text-end tabular-nums">{l.kind === 'quote' ? 'يحدد لاحقًا' : l.amount === 0 ? 'مشمول' : l.amount < 0 ? `− ${formatJOD(-l.amount)}` : formatJOD(l.amount)}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          {f.adjusted && (
+            <tr>
+              <td className="pt-2 text-end text-xs">السعر المعتمد عند الحجز</td>
+              <td className="pt-2 text-end text-xs tabular-nums">{formatJOD(r.total)}</td>
+            </tr>
+          )}
+          <tr className="text-base font-bold">
+            <td className="pt-2 text-end">الإجمالي النهائي</td>
+            <td className="pt-2 text-end tabular-nums">{formatJOD(f.total)}</td>
+          </tr>
+        </tfoot>
+      </table>
+      {f.adjusted && <p className="mt-2 text-xs">أُضيفت الفحوصات المستخدمة أثناء الزيارة بأسعارها المعيارية{r.manualDiscount ? '، مع الخصم الموضح' : ''}.</p>}
+      <p className="mt-1 text-xs">{POLICY_TEXT[r.visitFeePolicy]}</p>
+    </Section>
   );
 }

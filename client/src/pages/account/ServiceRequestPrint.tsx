@@ -9,11 +9,12 @@ import { useAsync, useDocumentTitle } from '../../lib/useAsync';
 export default function ServiceRequestPrint() {
   const { id = '' } = useParams();
   const [params] = useSearchParams();
-  const kind = params.get('doc') === 'quote' ? 'quote' : 'report';
+  const doc = params.get('doc');
+  const kind = doc === 'quote' ? 'quote' : doc === 'invoice' ? 'invoice' : 'report';
   const q = useAsync(() => api.get<RequestCore>(`/account/service-requests/${id}`), [id]);
   const r = q.data;
   const quote = r?.quotes.find((x) => x.id === params.get('q')) ?? null;
-  useDocumentTitle(r ? `${kind === 'report' ? 'تقرير فني' : 'عرض سعر'} — طلب ${r.number}` : 'مستند');
+  useDocumentTitle(r ? `${kind === 'report' ? 'تقرير فني' : kind === 'invoice' ? 'فاتورة زيارة' : 'عرض سعر'} — طلب ${r.number}` : 'مستند');
 
   if (q.error) return <div className="container py-16"><ErrorState message={q.error.message} onRetry={q.reload} /></div>;
   if (!r) return <div className="container py-10"><Skeleton className="h-96 w-full" /></div>;

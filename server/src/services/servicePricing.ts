@@ -190,3 +190,47 @@ export async function priceVisit(input: PricingInput) {
 }
 
 export type VisitPrice = Awaited<ReturnType<typeof priceVisit>>;
+
+// ───── تعديل الطلب في الموقع ─────
+
+export type OnsiteDevice = { id: string; name: string; fee: number; auto?: boolean };
+
+/** الأجهزة التي يمكن للفني إضافتها في الموقع بسعرها المعياري (رسوم الخدمة الخاصة أو رسوم الجهاز العامة) */
+export async function onsiteOptions(serviceId: string | undefined, bookedIds: string[]) {
+  const [devices, links] = await Promise.all([
+    prisma.serviceDevice.findMany({ where: { active: true, scopePriced: false, parentId: null }, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }], include: { accessories: { where: { active: true }, select: { id: true, name: true } } } }),
+    serviceId ? prisma.serviceDeviceLink.findMany({ where: { serviceId } }) : Promise.resolve([]),
+  ]);
+  return devices
+    .filter((d) => !bookedIds.includes(d.id))
+    .map((d) => {
+      const l = links.find((x) => x.deviceId === d.id);
+      const fee = l ? (l.included ? 0 : num(l.fee ?? d.fee)) : num(d.fee);
+      return { id: d.id, name: d.name, imageUrl: d.imageUrl, fee: r3(fee), linked: !!l, accessories: d.accessories };
+    });
+}
+
+/**
+ * الإجمالي النهائي = الإجمالي المعتمد وقت الحجز + أجهزة الموقع − الخصم اليدوي.
+ * السعر المعتمد وبنوده لا تتغير — التعديل يُحفظ منفصلًا.
+ */
+export async function priceOnsite(r: { total: { toString(): string }; services: unknown; devices: unknown }, deviceIds: string[], manualDiscount: number) {
+  const serviceId = (r.services as { id: string }[])[0]?.id;
+  const booked = (r.devices as { id: string }[]).map((d) => d.id);
+  const options = await onsiteOptions(serviceId, booked);
+  const devices: OnsiteDevice[] = [];
+  for (const id of [...new Set(deviceIds)]) {
+    const o = options.find((x) => x.id === id);
+    if (!o) throw badRequest('أحد الأجهزة غير متاح أو مضاف مسبقًا في الحجز', { field: 'deviceIds' });
+    devices.push({ id: o.id, name: o.name, fee: o.fee });
+    for (const a of o.accessories) if (!booked.includes(a.id) && !devices.some((x) => x.id === a.id)) devices.push({ id: a.id, name: a.name, fee: 0, auto: true });
+  }
+  const base = num(r.total);
+  const added = r3(devices.reduce((n, d) => n + d.fee, 0));
+  const discount = r3(manualDiscount);
+  if (discount > r3(base + added)) throw badRequest('الخصم أكبر من قيمة الزيارة والأجهزة', { field: 'manualDiscount' });
+  return { base, devices, added, discount, finalTotal: r3(base + added - discount) };
+}
+
+/** الإجمالي الفعلي للطلب (بعد تعديل الموقع إن وجد) */
+export const effectiveTotal = (r: { total: { toString(): string }; finalTotal: { toString(): string } | null }) => num(r.finalTotal ?? r.total);

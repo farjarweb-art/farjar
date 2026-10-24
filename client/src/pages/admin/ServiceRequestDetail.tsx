@@ -5,8 +5,8 @@ import { AdminPage, DefList, DetailSkeleton, Panel } from '../../components/admi
 import { PriceSummary } from '../../components/services/PriceSummary';
 import { Button, ButtonLink, Checkbox, ErrorState, Icon, Input, Select, Tag, Textarea } from '../../components/ui';
 import { api, fileHref } from '../../lib/api';
-import { displayPhone, formatDate, formatDateShort, formatJOD } from '../../lib/format';
-import { POLICY_TEXT, QUOTE_STATUS_LABEL, QUOTE_TITLES, URGENCY_LABEL, isDocumentMedia, mapsLink, TIER_LABEL, statusTone, type QuoteItem, type RequestCore, type RequestMedia, type ServiceQuote, type SrStatus } from '../../lib/siteServices';
+import { cx, displayPhone, formatDate, formatDateShort, formatJOD } from '../../lib/format';
+import { POLICY_TEXT, QUOTE_STATUS_LABEL, finalPricing, cleanDeviceName, QUOTE_TITLES, URGENCY_LABEL, isDocumentMedia, mapsLink, TIER_LABEL, statusTone, type QuoteItem, type RequestCore, type RequestMedia, type ServiceQuote, type SrStatus } from '../../lib/siteServices';
 import { useDocumentTitle } from '../../lib/useAsync';
 
 type Detail = RequestCore & {
@@ -18,6 +18,7 @@ type Detail = RequestCore & {
   history: { id: string; number: number; status: SrStatus; statusLabel: string; services: { name: string }[]; total: number; createdAt: string }[];
   technicians: { id: string; name: string; specialty: string | null }[];
   statuses: { value: SrStatus; label: string }[];
+  onsiteOptions?: { id: string; name: string; imageUrl: string | null; fee: number; linked: boolean; accessoryNames: string[] }[];
 };
 
 const EVENT_LABEL: Record<string, string> = {
@@ -29,6 +30,7 @@ const EVENT_LABEL: Record<string, string> = {
   note: 'ملاحظة',
   report: 'التقرير الفني',
   quote: 'عرض سعر',
+  adjustment: 'تعديل في الموقع',
 };
 
 const amman = (iso: string) => {
@@ -136,6 +138,7 @@ export default function ServiceRequestDetail() {
           </Panel>
 
           <DocumentsPanel request={r} onChanged={q.reload} />
+          <OnsitePanel request={r} onSaved={q.reload} />
           <ReportEditor request={r} onSaved={q.reload} />
           <QuotesPanel request={r} onChanged={q.reload} />
 
@@ -225,7 +228,11 @@ export default function ServiceRequestDetail() {
             />
           </Panel>
 
+          {r.finalTotal != null && <PriceSummary lines={finalPricing(r).lines} total={r.finalTotal} title="الفاتورة النهائية (بعد تعديل الموقع)" />}
           <PriceSummary lines={r.priceLines} total={r.total} title="السعر المعتمد (وقت الحجز)" />
+          <ButtonLink variant="outline" size="sm" to={`/admin/service-requests/${r.id}/print?doc=invoice`}>
+            <Icon name="printer" className="h-4 w-4" /> فاتورة الزيارة PDF
+          </ButtonLink>
           <p className="text-xs text-muted">
             وافق العميل على السعر والشروط بتاريخ {formatDate(r.termsAcceptedAt, true)}. {POLICY_TEXT[r.visitFeePolicy]}
           </p>
@@ -587,6 +594,105 @@ function DocumentsPanel({ request: r, onChanged }: { request: Detail; onChanged:
         </label>
       </div>
       <p className="mt-2 text-xs text-muted">PDF أو صور أو ملفات CAD — تظهر للعميل في طلبه ويصله إشعار.</p>
+    </Panel>
+  );
+}
+
+/** تعديل الطلب في الموقع: الأجهزة المستخدمة ميدانيًا بسعرها المعياري + خصم يدوي اختياري */
+function OnsitePanel({ request: r, onSaved }: { request: Detail; onSaved: () => void }) {
+  const m = useMutation();
+  const options = r.onsiteOptions ?? [];
+  const initial = () => (r.onsiteDevices ?? []).filter((d) => !d.auto).map((d) => d.id);
+  const [ids, setIds] = useState<string[]>(initial);
+  const [discount, setDiscount] = useState(() => (r.manualDiscount ? String(r.manualDiscount) : ''));
+  const [note, setNote] = useState(r.adjustmentNote ?? '');
+  const [showAll, setShowAll] = useState(false);
+  useEffect(() => {
+    setIds(initial());
+    setDiscount(r.manualDiscount ? String(r.manualDiscount) : '');
+    setNote(r.adjustmentNote ?? '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [r.id, r.adjustedAt]);
+
+  const chosen = options.filter((o) => ids.includes(o.id));
+  const added = chosen.reduce((n, o) => n + o.fee, 0);
+  const disc = Number(discount) || 0;
+  const total = Math.round((r.total + added - disc) * 1000) / 1000;
+  const tooMuch = disc > r.total + added;
+  const linked = options.filter((o) => o.linked);
+  const others = options.filter((o) => !o.linked);
+  const visible = showAll || !linked.length ? [...linked, ...others] : linked;
+
+  async function save(reset = false) {
+    const body = reset ? { deviceIds: [], manualDiscount: 0 } : { deviceIds: ids, manualDiscount: disc, note: note.trim() || undefined };
+    if (await m.run(reset ? 'reset' : 'save', () => api.put(`/admin/service-requests/${r.id}/adjustment`, body), reset ? 'تمت العودة للسعر المعتمد' : 'تم تحديث الإجمالي النهائي')) onSaved();
+  }
+
+  return (
+    <Panel title="تعديل الطلب في الموقع" actions={r.finalTotal != null ? <Tag tone="sand">معدّل — {formatJOD(r.finalTotal)}</Tag> : undefined}>
+      <p className="text-sm text-muted">حدد الأجهزة التي استُخدمت ميدانيًا (تُسعّر تلقائيًا بسعرها المعياري)، وأضف خصمًا إن وُجد. السعر المعتمد وقت الحجز لا يتغير، ويظهر الإجمالي الجديد للعميل في التقرير والفاتورة.</p>
+      {options.length ? (
+        <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+          {visible.map((o) => {
+            const on = ids.includes(o.id);
+            return (
+              <li key={o.id}>
+                <label className={cx('flex cursor-pointer items-center gap-3 rounded-lg border p-2 transition-colors', on ? 'border-brand-600 bg-brand-50/60 dark:bg-brand-900/20' : 'border-line hover:border-ink/40')}>
+                  <input type="checkbox" className="h-4 w-4 shrink-0 accent-brand-600" checked={on} onChange={() => setIds(on ? ids.filter((x) => x !== o.id) : [...ids, o.id])} />
+                  <span className="h-10 w-12 shrink-0 overflow-hidden rounded bg-subtle">{o.imageUrl && <img src={o.imageUrl} alt="" className="h-full w-full object-cover" loading="lazy" />}</span>
+                  <span className="min-w-0 flex-1 text-sm">
+                    <span className="block font-semibold leading-snug">{cleanDeviceName(o.name)}</span>
+                    {o.accessoryNames.length > 0 && <span className="block text-xs text-success">+ {o.accessoryNames.map(cleanDeviceName).join('، ')} مجانًا</span>}
+                  </span>
+                  <b className="shrink-0 text-sm">{o.fee ? formatJOD(o.fee) : 'مجاني'}</b>
+                </label>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="mt-3 rounded-lg bg-subtle px-3 py-2 text-sm text-muted">كل الأجهزة المتاحة مضافة في الحجز.</p>
+      )}
+      {linked.length > 0 && others.length > 0 && (
+        <button type="button" className="mt-2 text-sm font-semibold text-brand-700 hover:underline dark:text-brand-300" onClick={() => setShowAll((x) => !x)}>
+          {showAll ? 'إخفاء الأجهزة غير المرتبطة بالخدمة' : `أجهزة أخرى (${others.length})`}
+        </button>
+      )}
+      <div className="mt-4 grid gap-3 sm:grid-cols-[12rem_1fr]">
+        <Input label="خصم يدوي (اختياري)" type="number" min={0} step="any" inputMode="decimal" className="ltr text-start" value={discount} onChange={(e) => setDiscount(e.target.value)} error={tooMuch ? 'الخصم أكبر من الإجمالي' : m.fieldErrors.manualDiscount} hint="بالدينار الأردني" />
+        <Input label="سبب التعديل / ملاحظة (اختياري)" value={note} maxLength={500} onChange={(e) => setNote(e.target.value)} />
+      </div>
+      <dl className="mt-4 divide-y divide-line rounded-xl border border-line text-sm">
+        <div className="flex justify-between px-3 py-2">
+          <dt className="text-muted">السعر المعتمد وقت الحجز</dt>
+          <dd className="tabular-nums">{formatJOD(r.total)}</dd>
+        </div>
+        <div className="flex justify-between px-3 py-2">
+          <dt className="text-muted">أجهزة الموقع ({chosen.length})</dt>
+          <dd className="tabular-nums">+ {formatJOD(added)}</dd>
+        </div>
+        {disc > 0 && (
+          <div className="flex justify-between px-3 py-2 text-success">
+            <dt>الخصم اليدوي</dt>
+            <dd className="tabular-nums">− {formatJOD(disc)}</dd>
+          </div>
+        )}
+        <div className="flex justify-between bg-inverse px-3 py-2.5 font-semibold text-inverse-fg">
+          <dt>الإجمالي النهائي</dt>
+          <dd className="font-display text-lg tabular-nums">{formatJOD(Math.max(total, 0))}</dd>
+        </div>
+      </dl>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button loading={m.pending === 'save'} disabled={tooMuch} onClick={() => save()}>
+          حفظ وتحديث الإجمالي
+        </Button>
+        {r.finalTotal != null && (
+          <Button variant="ghost" loading={m.pending === 'reset'} onClick={() => save(true)}>
+            إلغاء التعديلات
+          </Button>
+        )}
+      </div>
+      {r.adjustedAt && <p className="mt-2 text-xs text-muted">آخر تعديل: {formatDate(r.adjustedAt, true)}{r.adjustedByName ? ` — ${r.adjustedByName}` : ''}</p>}
     </Panel>
   );
 }

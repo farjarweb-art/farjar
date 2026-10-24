@@ -139,3 +139,60 @@ describe('خدمة فحص العقار الاحترافية', () => {
     expect((await detail('cracks-inspection')).zones.find((z) => z.id === irbid)!.regions).toEqual(['الحصن', 'الرمثا']);
   });
 });
+
+describe('تعديل الطلب في الموقع (أجهزة إضافية وخصم يدوي)', () => {
+  it('يضيف الأجهزة بسعرها المعياري ويطبق الخصم دون تغيير السعر المعتمد، ويظهر الإجمالي للعميل', async () => {
+    const customer = await createCustomer({ name: 'هبة يوسف', phone: '0786667777' });
+    const res = await customer.post('/api/v1/site-services/requests').send({
+      serviceIds: [cracks.service.id],
+      zoneId: amman,
+      ownership: 'مستأجر',
+      requestType: 'INSPECTION_REPORT',
+      name: 'هبة يوسف',
+      phone: '0786667777',
+      clientType: 'INDIVIDUAL',
+      propertyType: 'شقة',
+      area: 'صويلح',
+      address: 'شارع الجامعة، عمارة 3',
+      description: 'تشققات في جدار الصالون',
+      date: nextWorkingDate(3),
+      time: '11:00',
+      expectedTotal: 35,
+      acceptTerms: true,
+    });
+    expect(res.status).toBe(201);
+    const id = res.body.data.id;
+    const detail = (await admin.get(`/api/v1/admin/service-requests/${id}`)).body.data;
+    const opts = detail.onsiteOptions as { id: string; name: string; fee: number; accessoryNames: string[] }[];
+    // أداة التشققات محجوزة أصلًا فلا تظهر، والمعدات الثقيلة لا تُضاف هنا
+    expect(opts.some((o) => o.name.includes('عرض التشققات'))).toBe(false);
+    expect(opts.some((o) => o.name.includes('RIDGID'))).toBe(false);
+    const schmidt = opts.find((o) => o.name.includes('شميدت'))!;
+    const camera = opts.find((o) => o.accessoryNames.length)!;
+    expect(schmidt.fee).toBe(25);
+
+    const bad = await admin.put(`/api/v1/admin/service-requests/${id}/adjustment`).send({ deviceIds: [schmidt.id], manualDiscount: 500 });
+    expect(bad.status).toBe(400);
+    const adj = await admin.put(`/api/v1/admin/service-requests/${id}/adjustment`).send({ deviceIds: [schmidt.id, camera.id], manualDiscount: 10, note: 'خصم جار' });
+    expect(adj.status).toBe(200);
+    // 35 + 25 + 40 (+ الخطافات مجانًا) − 10
+    expect(adj.body.data).toMatchObject({ base: 35, added: 65, discount: 10, finalTotal: 90 });
+    expect(adj.body.data.devices).toHaveLength(3);
+
+    const r = (await admin.get(`/api/v1/admin/service-requests/${id}`)).body.data;
+    expect(r).toMatchObject({ total: 35, finalTotal: 90, manualDiscount: 10 });
+    expect(r.priceLines.map((l: { amount: number }) => l.amount)).toEqual([35, 0]);
+    expect(r.events.some((e: { kind: string }) => e.kind === 'adjustment')).toBe(true);
+    const mine = (await customer.get(`/api/v1/account/service-requests/${id}`)).body.data;
+    expect(mine).toMatchObject({ total: 35, finalTotal: 90, manualDiscount: 10 });
+    expect((await customer.get('/api/v1/account/service-requests')).body.data.find((x: { id: string }) => x.id === id).total).toBe(90);
+
+    // عرض سعر الإصلاح يخصم الإجمالي الفعلي للزيارة (سياسة الخصم من الإصلاح)
+    const q = await admin.post(`/api/v1/admin/service-requests/${id}/quotes`).send({ items: [{ description: 'حقن التشققات', qty: 1, unitPrice: 200 }] });
+    expect(q.body.data).toMatchObject({ visitFeeDeduction: 90, total: 110 });
+
+    // إلغاء التعديل يعيد السعر المعتمد
+    await admin.put(`/api/v1/admin/service-requests/${id}/adjustment`).send({ deviceIds: [], manualDiscount: 0 });
+    expect((await admin.get(`/api/v1/admin/service-requests/${id}`)).body.data.finalTotal).toBeNull();
+  });
+});

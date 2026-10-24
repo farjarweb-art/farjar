@@ -2278,6 +2278,14 @@ model ServiceRequest {
   /// صفة العميل: مالك، مستأجر، مشتري محتمل…
   ownership       String?
   urgency         Urgency              @default(NORMAL)
+  /// تعديل الطلب في الموقع (لا يغيّر السعر المعتمد وقت الحجز): أجهزة أُضيفت ميدانيًا + خصم يدوي
+  onsiteDevices   Json                 @default("[]")
+  manualDiscount  Decimal              @default(0) @db.Decimal(10, 3)
+  /// الإجمالي النهائي بعد التعديل (فارغ = لم يُعدّل، والإجمالي = total)
+  finalTotal      Decimal?             @db.Decimal(10, 3)
+  adjustmentNote  String?
+  adjustedAt      DateTime?
+  adjustedByName  String?
   termsAcceptedAt DateTime
   technicianId    String?
   adminNotes      String?

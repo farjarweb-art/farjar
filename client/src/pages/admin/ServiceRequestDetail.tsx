@@ -94,7 +94,6 @@ export default function ServiceRequestDetail() {
 
   const customerMedia = r.media.filter((x) => x.purpose === 'customer');
   const mapUrl = r.lat != null && r.lng != null ? `https://www.google.com/maps?q=${r.lat},${r.lng}` : null;
-  const wa = `https://wa.me/${r.phone.replace(/\D/g, '')}`;
 
   return (
     <AdminPage
@@ -212,12 +211,8 @@ export default function ServiceRequestDetail() {
               cols={1}
               items={[
                 ['الاسم', <Link to={`/admin/customers/${r.customer.id}`} className="font-semibold underline-offset-4 hover:underline">{r.name}</Link>],
-                [
-                  'الهاتف',
-                  <a href={wa} target="_blank" rel="noopener noreferrer" className="ltr inline-flex items-center gap-1 underline-offset-4 hover:underline">
-                    <Icon name="whatsapp" className="h-4 w-4" /> {displayPhone(r.phone)}
-                  </a>,
-                ],
+                ['الهاتف', <PhoneLink phone={r.phone} whatsapp={r.phoneWhatsapp !== false} />],
+                r.phone2 && ['الرقم الثانوي', <PhoneLink phone={r.phone2} whatsapp={!!r.phone2Whatsapp} />],
                 ['نوع العميل', `${r.clientTypeLabel} — ${r.propertyType}`],
                 r.ownership && ['صفة العميل', r.ownership],
                 r.urgency && r.urgency !== 'NORMAL' && ['الأولوية', <Tag tone={r.urgency === 'EMERGENCY' ? 'danger' : 'sand'}>⚡ {URGENCY_LABEL[r.urgency]}</Tag>],
@@ -694,5 +689,23 @@ function OnsitePanel({ request: r, onSaved }: { request: Detail; onSaved: () => 
       </div>
       {r.adjustedAt && <p className="mt-2 text-xs text-muted">آخر تعديل: {formatDate(r.adjustedAt, true)}{r.adjustedByName ? ` — ${r.adjustedByName}` : ''}</p>}
     </Panel>
+  );
+}
+
+/** رقم العميل: اتصال مباشر، وزر واتساب إن كان الرقم عليه واتساب */
+function PhoneLink({ phone, whatsapp }: { phone: string; whatsapp: boolean }) {
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      <a href={`tel:+${phone.replace(/\D/g, '')}`} className="ltr inline-flex items-center gap-1 font-semibold underline-offset-4 hover:underline">
+        <Icon name="phone" className="h-4 w-4" /> {displayPhone(phone)}
+      </a>
+      {whatsapp ? (
+        <a href={`https://wa.me/${phone.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-full bg-[#25D366]/15 px-2 py-0.5 text-xs font-semibold text-[#128c4b] hover:bg-[#25D366]/25">
+          <Icon name="whatsapp" className="h-3.5 w-3.5" /> واتساب
+        </a>
+      ) : (
+        <span className="text-xs text-muted">بدون واتساب</span>
+      )}
+    </span>
   );
 }

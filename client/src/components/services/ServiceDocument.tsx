@@ -46,7 +46,9 @@ export function ServiceDocument({ request: r, kind, quote, back }: { request: Re
         <Grid
           rows={[
             ['العميل', r.name],
-            ['الهاتف', <span className="ltr">{displayPhone(r.phone)}</span>],
+            ['الهاتف', <span className="ltr">{displayPhone(r.phone)}{r.phoneWhatsapp !== false ? ' (واتساب)' : ''}</span>],
+            ['الرقم الثانوي', r.phone2 ? <span className="ltr">{displayPhone(r.phone2)}{r.phone2Whatsapp ? ' (واتساب)' : ''}</span> : null],
+            ['الإحداثيات', r.lat != null && r.lng != null ? <span className="ltr">{r.lat.toFixed(6)}, {r.lng.toFixed(6)}</span> : null],
             ['نوع العميل', `${CLIENT_TYPE_LABEL[r.clientType]} — ${r.propertyType}`],
             ['صفة العميل', r.ownership],
             ['الأولوية', r.urgency && r.urgency !== 'NORMAL' ? URGENCY_LABEL[r.urgency] : null],

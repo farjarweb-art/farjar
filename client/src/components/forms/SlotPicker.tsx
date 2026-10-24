@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useSite } from '../../context/SiteContext';
 import { api, ApiError } from '../../lib/api';
 import { WEEKDAYS, WEEKDAYS_SHORT, addDays, cx, formatSlot, todayAmman, weekdayOf } from '../../lib/format';
@@ -26,7 +26,7 @@ type Props = {
 };
 
 /** اختيار اليوم (شريط أيام أفقي) ثم الوقت من الأوقات المتاحة */
-export function SlotPicker({ date, time, onChange, error, reloadKey = 0, endpoint = '/bookings/slots' }: Props) {
+export function SlotPicker({ date, time, onChange, error, reloadKey = 0, endpoint = '/bookings/slots', note }: Props & { note?: ReactNode }) {
   const { settings } = useSite();
   const today = todayAmman();
   const days = useMemo(
@@ -182,10 +182,12 @@ export function SlotPicker({ date, time, onChange, error, reloadKey = 0, endpoin
 
         <p className="mt-3 flex items-start gap-2 text-sm text-muted">
           <Icon name="clock" className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>
-            نترك <span className="ltr">{gap}</span> ساعات على الأقل بين كل موعد وآخر حتى يصل الفريق في وقته، لذلك تظهر
-            الأوقات القريبة من حجوزات أخرى معطّلة.
-          </span>
+          {note ?? (
+            <span>
+              نترك <span className="ltr">{gap}</span> ساعات على الأقل بين كل موعد وآخر حتى يصل الفريق في وقته، لذلك تظهر
+              الأوقات القريبة من حجوزات أخرى معطّلة.
+            </span>
+          )}
         </p>
       </div>
     </div>

@@ -38,6 +38,9 @@ export type SiteSettings = {
 
 export type AdminSettings = Omit<SiteSettings, 'whatsappMode'> & {
   slotMinutes: number;
+  /** مواعيد زيارات المعاينة اليومية */
+  serviceSlots: string[];
+  serviceSlotCapacity: number;
   contractReminderDays: number;
   tenderCommissionPercent: number;
   deliveryFeeDefault: number;

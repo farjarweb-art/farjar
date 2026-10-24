@@ -10,6 +10,7 @@ import { REVENUE_MODE_LABEL } from '../../lib/market';
 import { useDocumentTitle } from '../../lib/useAsync';
 
 type Key = keyof AdminSettings;
+type FormVal = string | number[] | string[];
 /** حدود الحقول الرقمية (نفس قيود الخادم) لعرض رسائل عربية قبل الإرسال */
 const RANGES: Partial<Record<Key, [number, number, boolean?]>> = {
   inspectionFeeNormal: [0, 1_000_000],
@@ -18,6 +19,7 @@ const RANGES: Partial<Record<Key, [number, number, boolean?]>> = {
   paintingFeeInside: [0, 1_000_000],
   paintingFeeOutside: [0, 1_000_000],
   slotMinutes: [15, 240, true],
+  serviceSlotCapacity: [1, 50, true],
   bookingGapHours: [0, 24],
   maxDaysAhead: [1, 365, true],
   contractReminderDays: [1, 180, true],
@@ -41,6 +43,7 @@ const NUMERIC: Key[] = [
   'paintingFeeInside',
   'paintingFeeOutside',
   'slotMinutes',
+  'serviceSlotCapacity',
   'bookingGapHours',
   'maxDaysAhead',
   'contractReminderDays',
@@ -134,10 +137,10 @@ function SettingsForm({ initial, onSaved }: { initial: AdminSettings; onSaved: (
   const m = useMutation();
   const [local, setLocal] = useState<Record<string, string>>({});
   const [base, setBase] = useState(initial);
-  const [form, setForm] = useState<Record<Key, string | number[]>>(() => toForm(initial));
+  const [form, setForm] = useState<Record<Key, FormVal>>(() => toForm(initial));
 
   function toForm(s: AdminSettings) {
-    const out = {} as Record<Key, string | number[]>;
+    const out = {} as Record<Key, FormVal>;
     for (const [k, v] of Object.entries(s) as [Key, unknown][]) out[k] = Array.isArray(v) ? [...v] : String(v ?? '');
     return out;
   }
@@ -153,6 +156,9 @@ function SettingsForm({ initial, onSaved }: { initial: AdminSettings; onSaved: (
         const a = [...(cur as number[])].sort().join(',');
         const b = [...base.workingDays].sort().join(',');
         if (a !== b) out[k] = [...(cur as number[])].sort();
+      } else if (k === 'serviceSlots') {
+        const a = [...(cur as string[])].sort().join(',');
+        if (a !== [...base.serviceSlots].sort().join(',')) out[k] = [...new Set(cur as string[])].sort();
       } else if (BOOL.includes(k)) {
         if ((cur === 'true') !== Boolean(base[k])) out[k] = cur === 'true';
       } else if (NUMERIC.includes(k)) {
@@ -178,6 +184,7 @@ function SettingsForm({ initial, onSaved }: { initial: AdminSettings; onSaved: (
       errs.whatsappNumber = 'رقم واتساب بالصيغة الدولية بدون + (أرقام فقط)';
     }
     if (changes.workingDays !== undefined && (changes.workingDays as number[]).length === 0) errs.workingDays = 'اختر يوم عمل واحدًا على الأقل';
+    if (changes.serviceSlots !== undefined && (changes.serviceSlots as string[]).length === 0) errs.serviceSlots = 'أضف موعدًا واحدًا على الأقل';
     setLocal(errs);
     if (Object.keys(errs).length) return;
     const body = changes;
@@ -275,6 +282,13 @@ function SettingsForm({ initial, onSaved }: { initial: AdminSettings; onSaved: (
           {num('maxDaysAhead', 'أقصى مدة للحجز المسبق (يوم)', { min: 1, max: 365, step: '1' })}
           {num('contractReminderDays', 'التذكير قبل انتهاء العقد (يوم)', { min: 1, max: 180, step: '1' })}
           {num('tenderCommissionPercent', 'عمولة المنصة على العطاءات (%) · Tender commission', { min: 0, max: 100, hint: 'تُحفظ مع كل ترسية ولا تتغير بتغيير النسبة لاحقًا' })}
+        </div>
+      </Section>
+
+      <Section title="مواعيد زيارات المعاينة والفحص" description="المواعيد التي يختار منها العميل في الحجز الموحد. أضف ما تشاء من المواعيد، والفارق المقترح بين الموعد والآخر ساعة ونصف إلى ساعتين.">
+        <ServiceSlotsEditor slots={form.serviceSlots as string[]} onChange={(l) => setForm((f) => ({ ...f, serviceSlots: l }))} error={fe.serviceSlots} />
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {num('serviceSlotCapacity', 'عدد الزيارات في نفس الموعد', { min: 1, max: 50, step: '1', hint: 'عدد الفرق المتاحة — الموعد يكتمل عند بلوغه' })}
         </div>
       </Section>
 
@@ -478,5 +492,81 @@ function EmailOtpPanel({ enabled }: { enabled: boolean }) {
         </div>
       </div>
     </Panel>
+  );
+}
+
+const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+const toTime = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
+/** محرر مواعيد الزيارات: إضافة/حذف بلا حدود + توليد تلقائي بفارق ثابت */
+function ServiceSlotsEditor({ slots, onChange, error }: { slots: string[]; onChange: (l: string[]) => void; error?: string }) {
+  const [add, setAdd] = useState('');
+  const [gen, setGen] = useState({ start: '09:00', count: '5', gap: '120' });
+  const sorted = [...new Set(slots)].sort();
+  const gaps = sorted.slice(1).map((t, i) => toMin(t) - toMin(sorted[i]));
+  const short = gaps.some((g) => g < 90);
+  const generate = () => {
+    const n = Math.min(Math.max(Number(gen.count) || 0, 1), 48);
+    const g = Math.max(Number(gen.gap) || 0, 15);
+    const out: string[] = [];
+    for (let i = 0; i < n; i++) {
+      const m = toMin(gen.start) + i * g;
+      if (m >= 24 * 60) break;
+      out.push(toTime(m));
+    }
+    onChange(out);
+  };
+  return (
+    <div className="space-y-4">
+      <div>
+        <span className="label">المواعيد الحالية ({sorted.length} يوميًا)</span>
+        <ul className="flex flex-wrap gap-2">
+          {sorted.map((t, i) => (
+            <li key={t} className="flex items-center gap-1 rounded-full border border-line-strong bg-surface py-1 pe-1 ps-3 text-sm font-semibold">
+              <span className="ltr tabular-nums">{t}</span>
+              {i > 0 && <span className="text-[11px] font-normal text-muted">(+{((toMin(t) - toMin(sorted[i - 1])) / 60).toLocaleString('ar', { maximumFractionDigits: 2 })} س)</span>}
+              <button type="button" onClick={() => onChange(sorted.filter((x) => x !== t))} className="grid h-7 w-7 place-items-center rounded-full text-muted hover:bg-danger/10 hover:text-danger" aria-label={`حذف موعد ${t}`}>
+                ×
+              </button>
+            </li>
+          ))}
+          {!sorted.length && <li className="text-sm text-muted">لا توجد مواعيد — أضف موعدًا.</li>}
+        </ul>
+        <FieldError message={error} />
+        {short && <p className="mt-2 text-sm text-warn">تنبيه: بعض المواعيد بينها أقل من ساعة ونصف.</p>}
+      </div>
+      <div className="flex flex-wrap items-end gap-2">
+        <Input label="إضافة موعد" type="time" className="ltr w-40 text-start" value={add} onChange={(e) => setAdd(e.target.value)} />
+        <Button
+          type="button"
+          variant="outline"
+          disabled={!add}
+          onClick={() => {
+            onChange([...new Set([...sorted, add])].sort());
+            setAdd('');
+          }}
+        >
+          إضافة
+        </Button>
+      </div>
+      <div className="rounded-xl border border-dashed border-line-strong p-3">
+        <p className="text-sm font-semibold">توليد المواعيد تلقائيًا</p>
+        <div className="mt-2 flex flex-wrap items-end gap-2">
+          <Input label="أول موعد" type="time" className="ltr w-36 text-start" value={gen.start} onChange={(e) => setGen({ ...gen, start: e.target.value })} />
+          <Input label="عدد المواعيد" type="number" min={1} max={48} className="ltr w-28 text-start" value={gen.count} onChange={(e) => setGen({ ...gen, count: e.target.value })} />
+          <Select label="الفارق" value={gen.gap} onChange={(e) => setGen({ ...gen, gap: e.target.value })}>
+            <option value="90">ساعة ونصف</option>
+            <option value="105">ساعة و45 دقيقة</option>
+            <option value="120">ساعتان</option>
+            <option value="60">ساعة</option>
+            <option value="150">ساعتان ونصف</option>
+            <option value="180">3 ساعات</option>
+          </Select>
+          <Button type="button" variant="ghost" onClick={generate}>
+            توليد
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }

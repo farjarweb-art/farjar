@@ -154,6 +154,7 @@ export default function ServiceRequestDetail() {
           <h2 className="text-lg">تفاصيل الزيارة</h2>
           <dl className="mt-3 space-y-2 text-[15px]">
             <Row label="الموعد" value={formatDate(r.scheduledAt, true)} />
+            <Row label="أرقام التواصل" value={[r.phone, r.phone2].filter(Boolean).join(' / ')} />
             <Row label="الفني" value={r.technician?.name} />
             <Row label="الموقع" value={`${r.zoneName} (${TIER_LABEL[r.tier]}) — ${r.area}`} />
             <Row label="العنوان" value={r.address} />

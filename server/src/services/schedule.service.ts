@@ -136,3 +136,29 @@ export function bookingFee(
   if (b.type === 'PAINTING' && b.zone) return b.zone === 'INSIDE_AMMAN' ? s.paintingFeeInside : s.paintingFeeOutside;
   return null;
 }
+
+/**
+ * مواعيد زيارات المعاينة والصيانة: قائمة أوقات ثابتة يحددها المدير (4–5 يوميًا افتراضيًا بفارق ساعتين).
+ * الموعد يكتمل عندما يبلغ عدد الطلبات فيه سعة الفرق.
+ */
+export async function getServiceDaySlots(date: string) {
+  const s = await getSettings();
+  const today = ammanParts(new Date()).date;
+  const ahead = daysBetween(today, date);
+  if (!s.workingDays.includes(weekdayOf(date))) return { date, open: false, reason: 'closed' as const, slots: [] as Slot[] };
+  if (ahead < 0 || ahead > s.maxDaysAhead) return { date, open: false, reason: 'out_of_range' as const, slots: [] as Slot[] };
+  const { start, end } = dayRangeUtc(date);
+  const taken = await prisma.serviceRequest.groupBy({
+    by: ['scheduledAt'],
+    where: { deletedAt: null, status: { not: 'CANCELLED' }, scheduledAt: { gte: start, lt: end } },
+    _count: true,
+  });
+  const now = Date.now();
+  const slots: Slot[] = s.serviceSlots.map((time) => {
+    const at = ammanToUtc(date, time).getTime();
+    if (at - now < MIN_LEAD_MS) return { time, available: false, reason: 'past' };
+    const count = taken.filter((t) => t.scheduledAt.getTime() === at).reduce((n, t) => n + t._count, 0);
+    return count >= s.serviceSlotCapacity ? { time, available: false, reason: 'booked' } : { time, available: true };
+  });
+  return { date, open: true, reason: null, slots };
+}

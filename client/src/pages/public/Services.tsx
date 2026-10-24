@@ -1,5 +1,5 @@
 import { Link, useSearchParams } from 'react-router-dom';
-import { ErrorState, Icon, PageHeader, Skeleton } from '../../components/ui';
+import { ButtonLink, ErrorState, Icon, PageHeader, Skeleton } from '../../components/ui';
 import { api } from '../../lib/api';
 import { cx, formatJOD } from '../../lib/format';
 import { AUDIENCE_LABEL, OWNERSHIP_OPTIONS, type Audience, type ServiceCard } from '../../lib/siteServices';
@@ -84,6 +84,12 @@ export default function Services() {
             </li>
             <li>
               <StartStep n={3} title="اختر الخدمة الأساسية، ثم أضف أجهزة الفحص التي تحتاجها" />
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <ButtonLink to={`/book${qs}`} size="lg">
+                  <Icon name="calendar" className="h-4 w-4" /> ابدأ الحجز الآن
+                </ButtonLink>
+                <span className="text-sm text-muted">أو اختر خدمة من القائمة بالأسفل</span>
+              </div>
             </li>
           </ol>
         </section>

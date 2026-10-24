@@ -2276,6 +2276,10 @@ model ServiceRequest {
   visitFeePolicy  VisitFeePolicy
   needsApproval   Boolean              @default(false)
   /// صفة العميل: مالك، مستأجر، مشتري محتمل…
+  /// رقم ثانوي للتواصل، وهل يتوفر واتساب على كل رقم
+  phone2          String?
+  phoneWhatsapp   Boolean              @default(true)
+  phone2Whatsapp  Boolean              @default(false)
   ownership       String?
   urgency         Urgency              @default(NORMAL)
   /// تعديل الطلب في الموقع (لا يغيّر السعر المعتمد وقت الحجز): أجهزة أُضيفت ميدانيًا + خصم يدوي

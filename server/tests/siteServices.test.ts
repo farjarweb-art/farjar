@@ -57,9 +57,10 @@ describe('التسعير الثابت للزيارة', () => {
     expect(res.body.data.devices.find((d: { auto?: boolean }) => d.auto).name).toContain('خطافات');
   });
 
-  it('جهاز لا يناسب المشكلة المختارة مرفوض، و"مشكلة أخرى" تفتح كل الأجهزة', async () => {
-    expect((await quote({ serviceIds: [water.service.id], zoneId: amman, problemIds: [problem('ضغط')], deviceIds: [device('الحراري')] })).status).toBe(400);
-    expect((await quote({ serviceIds: [water.service.id], zoneId: amman, problemIds: [problem('أخرى')], deviceIds: [device('الحراري')] })).status).toBe(200);
+  it('كل أجهزة المياه متاحة مع أي مشكلة، وجهاز من خارج الخدمة مرفوض', async () => {
+    expect((await quote({ serviceIds: [water.service.id], zoneId: amman, problemIds: [problem('ضغط')], deviceIds: [device('الحراري')] })).status).toBe(200);
+    const schmidt = await prisma.serviceDevice.findFirstOrThrow({ where: { code: 'schmidt_hammer_inspection' } });
+    expect((await quote({ serviceIds: [water.service.id], zoneId: amman, problemIds: [problem('ضغط')], deviceIds: [schmidt.id] })).status).toBe(400);
     // المشكلة مطلوبة في قسم التسربات
     expect((await quote({ serviceIds: [water.service.id], zoneId: amman })).status).toBe(400);
   });
@@ -123,13 +124,17 @@ describe('رحلة العميل من الحجز حتى الإغلاق', () => {
     requestType: 'INSPECTION_REPORT',
     name: 'سامر الخطيب',
     phone: '0791112222',
+    phone2: '0781112222',
+    phone2Whatsapp: true,
+    lat: 31.98,
+    lng: 35.87,
     clientType: 'INDIVIDUAL',
     propertyType: 'شقة',
     area: 'خلدا',
     address: 'شارع وصفي التل، عمارة 5، الطابق الثاني',
     description: 'رطوبة في جدار غرفة النوم بجانب الحمام',
     date,
-    time: '10:00',
+    time: '09:00',
     expectedTotal: 40,
     acceptTerms: true,
   });
@@ -206,7 +211,7 @@ describe('رحلة العميل من الحجز حتى الإغلاق', () => {
   });
 
   it('العميل يلغي طلبه قبل التأكيد فقط', async () => {
-    const res = await customer.post('/api/v1/site-services/requests').send({ ...base(), time: '14:00' });
+    const res = await customer.post('/api/v1/site-services/requests').send({ ...base(), time: '13:00' });
     expect((await customer.post(`/api/v1/account/service-requests/${res.body.data.id}/cancel`)).status).toBe(200);
     expect((await customer.get('/api/v1/account/service-requests')).body.data[0].status).toBe('CANCELLED');
   });
@@ -249,7 +254,7 @@ describe('اللافتات الإرشادية للمنشآت الصناعية', 
   it('الحقول المطلوبة تُتحقق، وعدة مراحل في طلب واحد مع مخطط PDF', async () => {
     const base = {
       serviceIds: [sign.service.id], zoneId: amman, problemIds: [opt('إضافة لافتات'), opt('تصنيع')], requestType: 'INSPECTION_REPORT',
-      name: 'مصنع النور', phone: '0795556666', clientType: 'FACTORY', propertyType: 'مصنع', area: 'سحاب', address: 'المدينة الصناعية، شارع 5',
+      name: 'مصنع النور', phone: '0795556666', phone2: '0785556666', lat: 31.95, lng: 36.05, clientType: 'FACTORY', propertyType: 'مصنع', area: 'سحاب', address: 'المدينة الصناعية، شارع 5',
       description: 'نحتاج نظام لافتات واضح للمستودعات ومناطق التحميل', date: nextWorkingDate(3), time: '11:00', expectedTotal: 35, acceptTerms: true,
     };
     const missing = await customer.post('/api/v1/site-services/requests').send({ ...base, extra: { activity: 'صناعات غذائية', size: '3 مبانٍ', stages: ['الدراسة'] } });

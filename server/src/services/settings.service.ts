@@ -41,6 +41,14 @@ export const settingsSchema = z.object({
   slotMinutes: z.number().int().min(15).max(240),
   bookingGapHours: z.number().min(0).max(24),
   maxDaysAhead: z.number().int().min(1).max(365),
+  /** مواعيد زيارات المعاينة اليومية (يضيف المدير ما يشاء) — الفارق المقترح ساعة ونصف إلى ساعتين */
+  serviceSlots: z
+    .array(z.string().regex(timeRe, 'صيغة الوقت HH:mm'))
+    .min(1, 'أضف موعدًا واحدًا على الأقل')
+    .max(48)
+    .transform((l) => [...new Set(l)].sort()),
+  /** عدد الزيارات المسموح بها في نفس الموعد (عدد الفرق) */
+  serviceSlotCapacity: z.number().int().min(1).max(50),
   contractReminderDays: z.number().int().min(1).max(180),
   /** عمولة المنصة من العطاءات المُرسّاة (نسبة مئوية) */
   tenderCommissionPercent: z.number().min(0).max(100),
@@ -120,6 +128,8 @@ export const DEFAULT_SETTINGS: Settings = {
   slotMinutes: 60,
   bookingGapHours: 3,
   maxDaysAhead: 60,
+  serviceSlots: ['09:00', '11:00', '13:00', '15:00', '17:00'],
+  serviceSlotCapacity: 1,
   contractReminderDays: 30,
   tenderCommissionPercent: 10,
   deliveryFeeDefault: 3,

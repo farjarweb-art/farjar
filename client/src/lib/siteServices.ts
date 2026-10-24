@@ -269,6 +269,9 @@ export type RequestCore = {
   requestTypeLabel: string;
   name: string;
   phone: string;
+  phone2?: string | null;
+  phoneWhatsapp?: boolean;
+  phone2Whatsapp?: boolean;
   clientType: ClientType;
   propertyType: string;
   ownership?: string | null;

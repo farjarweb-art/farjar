@@ -93,6 +93,9 @@ export function serviceRequestMessage(r: {
   ref: string;
   name: string;
   phone: string;
+  phone2?: string | null;
+  phoneWhatsapp?: boolean;
+  phone2Whatsapp?: boolean;
   requestType: ServiceRequestType;
   clientType: ClientType;
   propertyType: string;
@@ -119,7 +122,7 @@ export function serviceRequestMessage(r: {
     r.problems.length ? `المشكلة: ${r.problems.map((p) => p.name).join('، ')}` : '',
     r.devices.length ? `الأجهزة: ${r.devices.map((d) => d.name).join('، ')}` : '',
     ...(r.extra ?? []).map((x) => `${x.label}: ${x.value}`),
-    `العميل: ${r.name} — ${r.phone} (${CLIENT_TYPE_AR[r.clientType]} · ${r.propertyType}${r.ownership ? ` · ${r.ownership}` : ''})`,
+    `العميل: ${r.name} — ${r.phone}${r.phoneWhatsapp === false ? ' (بدون واتساب)' : ''}${r.phone2 ? ` / ${r.phone2}${r.phone2Whatsapp ? ' (واتساب)' : ''}` : ''} (${CLIENT_TYPE_AR[r.clientType]} · ${r.propertyType}${r.ownership ? ` · ${r.ownership}` : ''})`,
     `الموقع: ${r.zoneName} — ${r.area} — ${r.address}`,
     `الموعد المطلوب: ${when}`,
     `الإجمالي المعتمد: ${money(r.total)}${r.scopePriced ? ' + بنود تُسعَّر بعد مراجعة نطاق المشروع' : ''}`,

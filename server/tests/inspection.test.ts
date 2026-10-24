@@ -101,13 +101,16 @@ describe('خدمة فحص العقار الاحترافية', () => {
       requestType: 'INSPECTION_REPORT',
       name: 'رامي حداد',
       phone: '0795554444',
+      phone2: '0775554444',
+      lat: 31.95,
+      lng: 35.88,
       clientType: 'INDIVIDUAL',
       propertyType: 'فيلا',
       area: 'عبدون',
       address: 'شارع القاهرة، فيلا 12',
       description: 'تشققات أفقية في جدار السور الخارجي',
       date: nextWorkingDate(2),
-      time: '10:00',
+      time: '09:00',
       expectedTotal: 50,
       acceptTerms: true,
     });
@@ -150,6 +153,9 @@ describe('تعديل الطلب في الموقع (أجهزة إضافية وخ�
       requestType: 'INSPECTION_REPORT',
       name: 'هبة يوسف',
       phone: '0786667777',
+      phone2: '0796667777',
+      lat: 32.03,
+      lng: 35.84,
       clientType: 'INDIVIDUAL',
       propertyType: 'شقة',
       area: 'صويلح',
@@ -194,5 +200,44 @@ describe('تعديل الطلب في الموقع (أجهزة إضافية وخ�
     // إلغاء التعديل يعيد السعر المعتمد
     await admin.put(`/api/v1/admin/service-requests/${id}/adjustment`).send({ deviceIds: [], manualDiscount: 0 });
     expect((await admin.get(`/api/v1/admin/service-requests/${id}`)).body.data.finalTotal).toBeNull();
+  });
+});
+
+describe('الحجز الموحد: الموقع والتواصل والمواعيد', () => {
+  const body = (over: object = {}) => ({
+    serviceIds: [cracks.service.id], zoneId: amman, requestType: 'INSPECTION_REPORT', name: 'ليث', phone: '0791231231', phone2: '0781231231', phone2Whatsapp: true,
+    lat: 31.9, lng: 35.9, clientType: 'INDIVIDUAL', propertyType: 'قصر', area: 'عبدون', address: 'شارع 1', description: 'تشققات في السور',
+    date: nextWorkingDate(4), time: '15:00', expectedTotal: 35, acceptTerms: true, ...over,
+  });
+
+  it('الموقع والرقم الثانوي إجباريان، ويختلف الثانوي عن الأساسي', async () => {
+    const c = await createCustomer({ name: 'ليث', phone: '0791231231' });
+    const { lat: _a, lng: _b, ...noLoc } = body();
+    expect((await c.post('/api/v1/site-services/requests').send(noLoc)).status).toBe(400);
+    const { phone2: _c, ...noPhone2 } = body();
+    expect((await c.post('/api/v1/site-services/requests').send(noPhone2)).status).toBe(400);
+    expect((await c.post('/api/v1/site-services/requests').send(body({ phone2: '0791231231' }))).status).toBe(400);
+    const ok = await c.post('/api/v1/site-services/requests').send(body());
+    expect(ok.status).toBe(201);
+    const r = (await admin.get(`/api/v1/admin/service-requests/${ok.body.data.id}`)).body.data;
+    expect(r).toMatchObject({ phone2: '962781231231', phone2Whatsapp: true, phoneWhatsapp: true, lat: 31.9, lng: 35.9 });
+    // الموعد اكتمل (سعة فريق واحد)
+    const slots = (await request(app).get('/api/v1/site-services/slots').query({ date: nextWorkingDate(4) })).body.data;
+    expect(slots.slots.map((s: { time: string }) => s.time)).toEqual(['09:00', '11:00', '13:00', '15:00', '17:00']);
+    expect(slots.slots.find((s: { time: string }) => s.time === '15:00')).toMatchObject({ available: false, reason: 'booked' });
+    const again = await c.post('/api/v1/site-services/requests').send(body());
+    expect(again.status).toBe(409);
+    expect(again.body.error.code).toBe('SLOT_TAKEN');
+    // المدير يزيد المواعيد والسعة
+    expect((await admin.put('/api/v1/admin/settings').send({ serviceSlots: ['08:00', '09:30', '11:00', '12:30', '14:00', '15:30', '17:00'], serviceSlotCapacity: 2 })).status).toBe(200);
+    const more = (await request(app).get('/api/v1/site-services/slots').query({ date: nextWorkingDate(4) })).body.data.slots;
+    expect(more).toHaveLength(7);
+  });
+
+  it('رابط الخريطة يتحول لإحداثيات', async () => {
+    const link = await request(app).get('/api/v1/site-services/map-link').query({ u: 'https://www.google.com/maps/place/Amman/@31.9539494,35.910635,13z/data=!3m1!4b1' });
+    expect(link.body.data).toEqual({ lat: 31.953949, lng: 35.910635 });
+    expect((await request(app).get('/api/v1/site-services/map-link').query({ u: 'https://maps.google.com/?q=32.0123,35.8765' })).body.data).toEqual({ lat: 32.0123, lng: 35.8765 });
+    expect((await request(app).get('/api/v1/site-services/map-link').query({ u: 'https://example.com/whatever' })).status).toBe(400);
   });
 });

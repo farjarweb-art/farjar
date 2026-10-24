@@ -48,22 +48,11 @@ export function urgencyPrice(s: { priceUrgent: unknown; priceEmergency: unknown 
 }
 
 /**
- * الأجهزة التي يختارها العميل للخدمة حسب المشكلات المختارة (المدير يحدد ربط الأجهزة بالمشكلات).
- * الملحقات (لها جهاز أب) والإضافات التلقائية لا تُختار — تُضاف وحدها مجانًا.
+ * الأجهزة التي يختارها العميل لهذه الخدمة: كل الأجهزة المربوطة بها (كهرباء ← أجهزة الكهرباء، تسربات ← أجهزة المياه، فحص شامل ← كل الأجهزة).
+ * ربط المشكلات بالأجهزة يحدد "المقترح" فقط. الملحقات (لها جهاز أب) والإضافات التلقائية لا تُختار — تُضاف وحدها مجانًا.
  */
-export function allowedDeviceIds(
-  service: {
-    problems: { id: string; isOther: boolean; devices: { id: string }[] }[];
-    devices: { deviceId: string; autoInclude?: boolean; device: { active: boolean; parentId?: string | null } }[];
-  },
-  problemIds: string[],
-) {
-  const linked = service.devices.filter((l) => l.device.active && !l.device.parentId && !l.autoInclude).map((l) => l.deviceId);
-  if (!service.problems.length) return new Set(linked);
-  const chosen = service.problems.filter((p) => problemIds.includes(p.id));
-  if (chosen.some((p) => p.isOther)) return new Set(linked);
-  const fromProblems = new Set(chosen.flatMap((p) => p.devices.map((d) => d.id)));
-  return new Set(linked.filter((id) => fromProblems.has(id)));
+export function allowedDeviceIds(service: { devices: { deviceId: string; autoInclude?: boolean; device: { active: boolean; parentId?: string | null } }[] }) {
+  return new Set(service.devices.filter((l) => l.device.active && !l.device.parentId && !l.autoInclude).map((l) => l.deviceId));
 }
 
 /** يحسب السعر النهائي من الأسعار الحالية — يُستدعى للمعاينة قبل التأكيد وعند إنشاء الطلب */
@@ -90,9 +79,9 @@ export async function priceVisit(input: PricingInput) {
   }
 
   const deviceIds = [...new Set(input.deviceIds ?? [])];
-  const allowed = allowedDeviceIds(main, problemIds);
+  const allowed = allowedDeviceIds(main);
   const bad = deviceIds.find((id) => !allowed.has(id));
-  if (bad) throw badRequest('أحد الأجهزة المختارة لا يناسب المشكلات المحددة');
+  if (bad) throw badRequest('أحد الأجهزة المختارة غير متاح لهذه الخدمة');
 
   const requested: Urgency = input.urgency ?? 'NORMAL';
   const urgentPrice = urgencyPrice(main, requested);

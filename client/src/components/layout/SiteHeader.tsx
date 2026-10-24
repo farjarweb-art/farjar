@@ -180,7 +180,7 @@ export function SiteHeader() {
             </div>
 
             <Link
-              to="/bookings"
+              to="/book"
               className="ms-1 inline-flex h-10 items-center gap-1.5 whitespace-nowrap rounded-lg bg-primary px-4 text-sm font-semibold text-primary-fg shadow-[inset_0_-2px_0_rgb(0_0_0/0.12)] transition-colors hover:bg-primary-hover active:translate-y-px"
             >
               <Icon name="calendar" className="hidden h-4 w-4 sm:block" />
@@ -210,7 +210,7 @@ type TabItem = { to: string; key: MessageKey; icon: IconName; end?: boolean; mat
 
 const TABS: TabItem[] = [
   { to: '/', key: 'nav.home', icon: 'home', end: true },
-  { to: '/bookings', key: 'nav.bookShort', icon: 'calendar', match: (p) => p.startsWith('/bookings') },
+  { to: '/book', key: 'nav.bookShort', icon: 'calendar', match: (p) => p.startsWith('/book') || /^\/services\/[^/]+\/book/.test(p) },
   { to: '/store', key: 'nav.store', icon: 'store', match: (p) => p.startsWith('/store') },
   { to: '/cart', key: 'nav.cart', icon: 'bag', match: (p) => p.startsWith('/cart') || p.startsWith('/checkout') },
 ];

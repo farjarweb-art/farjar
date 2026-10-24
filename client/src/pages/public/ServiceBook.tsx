@@ -8,93 +8,123 @@ import { SlotPicker, longDate } from '../../components/forms/SlotPicker';
 import { MB, focusFirstError } from '../../components/forms/formUtils';
 import { DeviceCard } from '../../components/services/DeviceCard';
 import { PriceSummary } from '../../components/services/PriceSummary';
-import { Alert, Breadcrumbs, Checkbox, ChoiceGroup, ErrorState, Icon, Input, Select, Skeleton, Stepper, Textarea } from '../../components/ui';
+import { Alert, Breadcrumbs, Button, Checkbox, ChoiceGroup, ErrorState, Icon, Input, Select, Skeleton, Stepper, Textarea } from '../../components/ui';
 import { ApiError, api, toFormData } from '../../lib/api';
 import { cx, formatDate, formatJOD, formatSlot, isValidPhone } from '../../lib/format';
 import {
-  CLIENT_TYPE_LABEL,
-  PROPERTY_TYPES,
-  SCOPE_PRICED,
   REQUEST_TYPE_LABEL,
+  SCOPE_PRICED,
   TIER_LABEL,
   URGENCY_HINT,
   URGENCY_LABEL,
   allowedDevices,
   cleanDeviceName,
+  mapsLink,
+  normalizeDetail,
+  type Audience,
   type ClientType,
   type FormField,
   type RequestCreated,
   type RequestType,
+  type ServiceCard,
   type ServiceDetail,
   type Urgency,
   type VisitQuote,
-  normalizeDetail,
+  type Zone,
 } from '../../lib/siteServices';
 import { useAsync, useDocumentTitle } from '../../lib/useAsync';
 import { prepareWhatsAppWindow } from '../../lib/whatsapp';
 
-const STEPS = ['الخدمة والمشكلة', 'الموقع', 'التفاصيل والموعد', 'السعر والتأكيد'];
+/** نوع العقار يحدد قسم الخدمات (منازل وشقق / شركات ومصانع) */
+const PROPERTIES: { label: string; audience: Audience; client: ClientType; icon: 'home' | 'store' | 'briefcase' }[] = [
+  { label: 'شقة سكنية', audience: 'HOME', client: 'INDIVIDUAL', icon: 'home' },
+  { label: 'منزل مستقل', audience: 'HOME', client: 'INDIVIDUAL', icon: 'home' },
+  { label: 'فيلا', audience: 'HOME', client: 'INDIVIDUAL', icon: 'home' },
+  { label: 'قصر', audience: 'HOME', client: 'INDIVIDUAL', icon: 'home' },
+  { label: 'مجمع تجاري', audience: 'BUSINESS', client: 'COMPANY', icon: 'store' },
+  { label: 'شركة', audience: 'BUSINESS', client: 'COMPANY', icon: 'briefcase' },
+];
+
+const STEPS = ['العقار والموقع', 'التواصل', 'الموعد', 'الخدمة والفحوصات', 'الصور والتأكيد'];
+
+/** ملاحظة الإضافات التشخيصية كما تظهر للعميل */
+const ADDON_NOTE = 'ملاحظة: هذا كشف فني أولي لا يشمل أي فحص مخبري أو أجهزة متقدمة إلا بناءً على الطلب، ويتم تسعير كل إضافة حسب طلب العميل وتشخيص الموقع.';
+
+type Catalog = { services: (ServiceCard & { requestTypes?: RequestType[] })[]; zones: Zone[]; ownershipOptions: string[]; generalTerms: string[] };
 
 type Vals = {
   ownership: string;
-  urgency: Urgency;
-  requestType: RequestType | '';
-  problemIds: string[];
-  deviceIds: string[];
-  extraIds: string[];
-  name: string;
-  phone: string;
-  clientType: ClientType | '';
   propertyType: string;
   zoneId: string;
   area: string;
   address: string;
   lat: number | null;
   lng: number | null;
+  name: string;
+  phone: string;
+  phoneWhatsapp: boolean;
+  phone2: string;
+  phone2Whatsapp: boolean;
+  date: string;
+  time: string;
+  slug: string;
+  urgency: Urgency;
+  requestType: RequestType | '';
+  problemIds: string[];
+  deviceIds: string[];
+  extraIds: string[];
   description: string;
   problemLocation: string;
   notes: string;
-  date: string;
-  time: string;
   accept: boolean;
 };
 
 const EMPTY: Vals = {
-  ownership: '', urgency: 'NORMAL', requestType: '', problemIds: [], deviceIds: [], extraIds: [], name: '', phone: '', clientType: '', propertyType: '', zoneId: '',
-  area: '', address: '', lat: null, lng: null, description: '', problemLocation: '', notes: '', date: '', time: '', accept: false,
+  ownership: '', propertyType: '', zoneId: '', area: '', address: '', lat: null, lng: null,
+  name: '', phone: '', phoneWhatsapp: true, phone2: '', phone2Whatsapp: false,
+  date: '', time: '', slug: '', urgency: 'NORMAL', requestType: '', problemIds: [], deviceIds: [], extraIds: [],
+  description: '', problemLocation: '', notes: '', accept: false,
 };
 
 /** مفاتيح حقول كل خطوة (للتنقل لأول خطأ) */
 const STEP_KEYS = [
-  ['ownership', 'urgency', 'requestType', 'problemIds', 'deviceIds'],
-  ['name', 'phone', 'clientType', 'propertyType', 'zoneId', 'area', 'address', 'lat'],
-  ['description', 'problemLocation', 'photos', 'video', 'time', 'notes'],
-  ['accept'],
+  ['ownership', 'propertyType', 'zoneId', 'area', 'address', 'lat'],
+  ['name', 'phone', 'phone2'],
+  ['time'],
+  ['slug', 'urgency', 'requestType', 'problemIds', 'deviceIds'],
+  ['description', 'problemLocation', 'photos', 'video', 'notes', 'accept'],
 ];
 const stepOf = (k: string) => {
-  if (k === 'date' || k === 'serviceIds') return k === 'date' ? 2 : 0;
+  if (k === 'date') return 2;
+  if (k === 'lng') return 0;
+  if (k === 'serviceIds') return 3;
+  if (k.startsWith('extra.')) return 3;
   const i = STEP_KEYS.findIndex((ks) => ks.includes(k));
-  return i < 0 ? 3 : i;
+  return i < 0 ? 4 : i;
 };
 
 const MAX_VIDEO_MB = 40;
+const samePhone = (a: string, b: string) => a.replace(/\D/g, '').slice(-9) === b.replace(/\D/g, '').slice(-9);
 
-/** حجز زيارة معاينة/صيانة: الخدمة والمشكلة والأجهزة ← الموقع ← التفاصيل والموعد ← السعر والتأكيد */
+/**
+ * الحجز الموحد لزيارات المعاينة والفحص والصيانة:
+ * العقار والموقع ← التواصل ← الموعد ← الخدمة والفحوصات ← الصور والتأكيد
+ */
 export default function ServiceBook() {
-  const { slug = '' } = useParams();
+  const { slug: routeSlug = '' } = useParams();
   const [params] = useSearchParams();
-  const detail = useAsync(() => api.get<ServiceDetail>(`/site-services/${encodeURIComponent(slug)}`).then(normalizeDetail), [slug], `service:${slug}`);
-  const d = detail.data;
-  const s = d?.service;
-  useDocumentTitle(s ? `حجز: ${s.name}` : 'حجز زيارة');
+  const catalog = useAsync(() => api.get<Catalog>('/site-services'), [], 'site-services:book');
+  const c = catalog.data;
 
-  // صفة العميل والأولوية قد تأتي من بداية الحجز في صفحة الخدمات
   const [v, setV] = useState<Vals>(() => ({
     ...EMPTY,
+    slug: routeSlug || params.get('service') || '',
     ownership: params.get('ownership') ?? '',
     urgency: (['URGENT', 'EMERGENCY'] as const).find((u) => u === params.get('urgency')) ?? 'NORMAL',
   }));
   const [areaOther, setAreaOther] = useState(false);
+  const [mapLink, setMapLink] = useState('');
+  const [mapLinkState, setMapLinkState] = useState<{ loading?: boolean; error?: string; ok?: boolean }>({});
   const [photos, setPhotos] = useState<File[]>([]);
   const [video, setVideo] = useState<File | null>(null);
   const [documents, setDocuments] = useState<File[]>([]);
@@ -107,42 +137,74 @@ export default function ServiceBook() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [priceChanged, setPriceChanged] = useState(false);
+  const [slotsKey, setSlotsKey] = useState(0);
   const [done, setDone] = useState<RequestCreated | null>(null);
   const formRef = useRef<HTMLDivElement>(null);
 
-  useAccountPrefill((c) => setV((x) => ({ ...x, name: x.name || c.name, phone: x.phone || c.localPhone })));
+  const detail = useAsync(
+    () => (v.slug ? api.get<ServiceDetail>(`/site-services/${encodeURIComponent(v.slug)}`).then(normalizeDetail) : Promise.resolve(null)),
+    [v.slug],
+    v.slug ? `service:${v.slug}` : undefined,
+  );
+  const d = v.slug ? detail.data : null;
+  const s = d?.service;
+  useDocumentTitle(s ? `حجز: ${s.name}` : 'احجز زيارة كشف فني');
 
-  // نوع الطلب الافتراضي = أول نوع متاح
+  useAccountPrefill((x) => setV((y) => ({ ...y, name: y.name || x.name, phone: y.phone || x.localPhone })));
+
+  const property = PROPERTIES.find((p) => p.label === v.propertyType);
+  const audience: Audience | null = property?.audience ?? null;
+  const services = useMemo(() => (c && audience ? c.services.filter((x) => x.audiences.includes(audience)) : []), [c, audience]);
+  const zone = c?.zones.find((z) => z.id === v.zoneId);
+
+  // خدمة لا تناسب نوع العقار المختار تُلغى (مثلًا خدمة للمصانع مع شقة سكنية)
+  const [serviceDropped, setServiceDropped] = useState<string | null>(null);
   useEffect(() => {
-    if (s && !v.requestType && s.requestTypes.length === 1) setV((x) => ({ ...x, requestType: s.requestTypes[0].value }));
+    if (!c || !audience || !v.slug) return;
+    const svc = c.services.find((x) => x.slug === v.slug);
+    if (svc && !svc.audiences.includes(audience)) {
+      setServiceDropped(svc.name);
+      setV((x) => ({ ...x, slug: '', problemIds: [], deviceIds: [], extraIds: [], requestType: '' }));
+    }
+  }, [c, audience, v.slug]);
+
+  // نوع الطلب الافتراضي = أول نوع متاح (أو الوحيد)
+  useEffect(() => {
+    if (s && (!v.requestType || !s.requestTypes.some((t) => t.value === v.requestType))) {
+      const pref = s.requestTypes.find((t) => t.value === 'INSPECTION_REPORT') ?? s.requestTypes[0];
+      setV((x) => ({ ...x, requestType: pref?.value ?? '' }));
+    }
   }, [s, v.requestType]);
 
   const devices = useMemo(() => (s ? allowedDevices(s, v.problemIds) : []), [s, v.problemIds]);
-  // تُضاف مجانًا: إضافات الخدمة التلقائية + ملحقات الأجهزة المختارة
+  /** الأجهزة المقترحة للمشكلات المختارة (تظهر أولًا بعلامة "مقترح") */
+  const recommended = useMemo(() => {
+    if (!s) return new Set<string>();
+    return new Set(s.problems.filter((p) => v.problemIds.includes(p.id) && !p.isOther).flatMap((p) => p.deviceIds));
+  }, [s, v.problemIds]);
+  const sortedDevices = useMemo(() => [...devices].sort((a, b) => Number(recommended.has(b.id)) - Number(recommended.has(a.id))), [devices, recommended]);
   const freeAdds = useMemo(() => {
     if (!s) return [];
-    const chosen = s.devices.filter((x) => v.deviceIds.includes(x.id));
-    const accIds = new Set(chosen.flatMap((x) => x.accessoryIds));
+    const accIds = new Set(s.devices.filter((x) => v.deviceIds.includes(x.id)).flatMap((x) => x.accessoryIds));
     return s.devices.filter((x) => x.autoInclude || (x.parentId && accIds.has(x.id)));
   }, [s, v.deviceIds]);
   const urgencies = useMemo(
     () => (s ? ([['NORMAL', s.priceInside], ['URGENT', s.priceUrgent], ['EMERGENCY', s.priceEmergency]] as [Urgency, number | null][]).filter(([u, p]) => u === 'NORMAL' || p != null) : []),
     [s],
   );
-  // خدمة بلا أسعار عاجلة: الأولوية عادية
   useEffect(() => {
     if (s && !urgencies.some(([u]) => u === v.urgency)) setV((x) => ({ ...x, urgency: 'NORMAL' }));
   }, [s, urgencies, v.urgency]);
-  // الأجهزة التي لم تعد مناسبة للمشكلات المختارة تُزال
+  // الأجهزة غير المتاحة للخدمة الجديدة تُزال
   useEffect(() => {
     const ok = new Set(devices.map((x) => x.id));
     setV((x) => (x.deviceIds.every((id) => ok.has(id)) ? x : { ...x, deviceIds: x.deviceIds.filter((id) => ok.has(id)) }));
   }, [devices]);
 
-  const zone = d?.zones.find((z) => z.id === v.zoneId);
   const serviceIds = useMemo(() => (s ? [s.id, ...v.extraIds] : []), [s, v.extraIds]);
   const needsProblems = !!s?.problems.length;
-  const quoteKey = JSON.stringify([serviceIds, v.zoneId, v.problemIds, v.deviceIds, v.urgency]);
+  const quoteBody = { serviceIds, zoneId: v.zoneId, problemIds: v.problemIds, deviceIds: v.deviceIds, urgency: v.urgency };
+  const quoteKey = JSON.stringify(quoteBody);
 
   // السعر الحي من السيرفر (نفس الحساب الذي يُعتمد عند التأكيد)
   useEffect(() => {
@@ -155,7 +217,7 @@ export default function ServiceBook() {
     setQuoting(true);
     const t = window.setTimeout(() => {
       api
-        .post<VisitQuote>('/site-services/quote', { serviceIds, zoneId: v.zoneId, problemIds: v.problemIds, deviceIds: v.deviceIds, urgency: v.urgency })
+        .post<VisitQuote>('/site-services/quote', quoteBody)
         .then((q) => {
           if (!live) return;
           setQuote(q);
@@ -171,14 +233,14 @@ export default function ServiceBook() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quoteKey]);
 
-  if (detail.error) {
+  if (catalog.error) {
     return (
       <div className="container py-16">
-        <ErrorState message={detail.error.message} onRetry={detail.reload} />
+        <ErrorState message={catalog.error.message} onRetry={catalog.reload} />
       </div>
     );
   }
-  if (!s || !d) {
+  if (!c) {
     return (
       <div className="container space-y-4 py-12">
         <Skeleton className="h-10 w-1/2" />
@@ -191,37 +253,64 @@ export default function ServiceBook() {
     setV((x) => ({ ...x, [k]: value }));
     setErrors((e) => (e[k as string] ? { ...e, [k]: '' } : e));
   };
-  const toggle = (k: 'problemIds' | 'deviceIds' | 'extraIds', id: string) =>
-    set(k, v[k].includes(id) ? v[k].filter((x) => x !== id) : [...v[k], id]);
+  const toggle = (k: 'problemIds' | 'deviceIds' | 'extraIds', id: string) => set(k, v[k].includes(id) ? v[k].filter((x) => x !== id) : [...v[k], id]);
+  const chooseService = (slug: string) => {
+    setServiceDropped(null);
+    setV((x) => (x.slug === slug ? x : { ...x, slug, problemIds: [], deviceIds: [], extraIds: [], requestType: '' }));
+    setExtra({});
+    setErrors((e) => ({ ...e, slug: '' }));
+  };
+
+  async function readMapLink() {
+    const u = mapLink.trim();
+    if (!u) return;
+    setMapLinkState({ loading: true });
+    try {
+      const p = await api.get<{ lat: number; lng: number }>(`/site-services/map-link?u=${encodeURIComponent(u)}`);
+      setV((x) => ({ ...x, lat: p.lat, lng: p.lng }));
+      setErrors((e) => ({ ...e, lat: '' }));
+      setMapLinkState({ ok: true });
+    } catch (e) {
+      setMapLinkState({ error: e instanceof ApiError ? e.message : 'تعذر قراءة الرابط' });
+    }
+  }
 
   function validate(i: number): Record<string, string> {
     const e: Record<string, string> = {};
     if (i === 0) {
-      if (d!.ownershipOptions.length && !v.ownership.trim()) e.ownership = 'اختر صفتك بالنسبة للعقار';
-      if (!v.requestType) e.requestType = 'اختر نوع الطلب';
-      if (needsProblems && !v.problemIds.length) e.problemIds = s!.optionsLabel ? 'اختر خيارًا واحدًا على الأقل' : 'اختر المشكلة التي تواجهها (يمكنك اختيار أكثر من مشكلة)';
+      if (c!.ownershipOptions.length && !v.ownership) e.ownership = 'اختر صفتك بالنسبة للعقار';
+      if (!property) e.propertyType = 'اختر نوع العقار';
+      if (!v.zoneId) e.zoneId = 'اختر المحافظة';
+      if (!v.area.trim()) e.area = 'اختر أو اكتب المنطقة';
+      if (v.address.trim().length < 5) e.address = 'اكتب العنوان بالتفصيل';
+      if (v.lat == null || v.lng == null) e.lat = 'حدد موقع العقار: بزر GPS، أو بلصق رابط الخريطة، أو من الخريطة';
     }
     if (i === 1) {
       if (v.name.trim().length < 2) e.name = 'اكتب اسمك';
       if (!isValidPhone(v.phone)) e.phone = 'رقم الهاتف غير صحيح (مثال: 0791234567)';
-      if (!v.clientType) e.clientType = 'اختر نوع العميل';
-      if (!v.propertyType.trim()) e.propertyType = 'اختر أو اكتب نوع العقار أو المنشأة';
-      if (!v.zoneId) e.zoneId = 'اختر المحافظة / المنطقة';
-      if (!v.area.trim()) e.area = 'اكتب المنطقة أو الحي';
-      if (v.address.trim().length < 5) e.address = 'اكتب العنوان بالتفصيل';
-      for (const f of s!.formFields) {
-        const val = extra[f.key];
-        const empty = Array.isArray(val) ? !val.length : !String(val ?? '').trim();
-        if (f.required && empty) e[`extra.${f.key}`] = `${f.label} مطلوب`;
-        else if (f.type === 'number' && !empty && !/^\d+(\.\d+)?$/.test(String(val).trim())) e[`extra.${f.key}`] = `"${f.label}" يجب أن يكون رقمًا`;
+      if (!v.phone2.trim()) e.phone2 = 'الرقم الثانوي مطلوب';
+      else if (!isValidPhone(v.phone2)) e.phone2 = 'الرقم الثانوي غير صحيح (مثال: 0781234567)';
+      else if (isValidPhone(v.phone) && samePhone(v.phone, v.phone2)) e.phone2 = 'اكتب رقمًا مختلفًا عن الرقم الأساسي';
+    }
+    if (i === 2 && (!v.date || !v.time)) e.time = 'اختر اليوم والموعد المناسب للزيارة';
+    if (i === 3) {
+      if (!s) e.slug = 'اختر الخدمة أو نوع المشكلة';
+      else {
+        if (!v.requestType) e.requestType = 'اختر نوع الطلب';
+        if (needsProblems && !v.problemIds.length) e.problemIds = s.optionsLabel ? 'اختر خيارًا واحدًا على الأقل' : 'اختر المشكلة التي تواجهها (يمكنك اختيار أكثر من مشكلة)';
+        for (const f of s.formFields) {
+          const val = extra[f.key];
+          const empty = Array.isArray(val) ? !val.length : !String(val ?? '').trim();
+          if (f.required && empty) e[`extra.${f.key}`] = `${f.label} مطلوب`;
+          else if (f.type === 'number' && !empty && !/^\d+(\.\d+)?$/.test(String(val).trim())) e[`extra.${f.key}`] = `"${f.label}" يجب أن يكون رقمًا`;
+        }
       }
     }
-    if (i === 2) {
-      if (v.description.trim().length < 5) e.description = 'صف المشكلة باختصار (5 أحرف على الأقل)';
-      if (!v.date || !v.time) e.time = 'اختر اليوم والوقت المناسب للزيارة';
+    if (i === 4) {
+      if (v.description.trim().length < 5) e.description = 'صف المشكلة أو المطلوب باختصار (5 أحرف على الأقل)';
       if (video && video.size > MAX_VIDEO_MB * MB) e.video = `حجم الفيديو أكبر من ${MAX_VIDEO_MB} ميغابايت`;
+      if (!v.accept) e.accept = 'يجب الموافقة على ملخص السعر والشروط لتأكيد الحجز';
     }
-    if (i === 3 && !v.accept) e.accept = 'يجب الموافقة على ملخص السعر والشروط لتأكيد الحجز';
     return e;
   }
 
@@ -242,17 +331,16 @@ export default function ServiceBook() {
   }
 
   async function submit() {
-    // كل الخطوات
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < STEPS.length; i++) {
       const e = validate(i);
       if (Object.keys(e).length) {
         setErrors(e);
-        goTo(i);
+        if (i !== step) goTo(i);
         window.setTimeout(() => focusFirstError(formRef.current, STEP_KEYS[i], e), 60);
         return;
       }
     }
-    if (!quote) {
+    if (!quote || !s || !property) {
       setSubmitError(quoteError ?? 'انتظر حتى يظهر ملخص السعر');
       return;
     }
@@ -262,17 +350,16 @@ export default function ServiceBook() {
     const wa = prepareWhatsAppWindow();
     try {
       const payload = {
-        serviceIds,
-        zoneId: v.zoneId,
-        problemIds: v.problemIds,
-        deviceIds: v.deviceIds,
-        urgency: v.urgency,
-        ownership: v.ownership.trim() || undefined,
+        ...quoteBody,
+        ownership: v.ownership || undefined,
         requestType: v.requestType,
         name: v.name.trim(),
         phone: v.phone.trim(),
-        clientType: v.clientType,
-        propertyType: v.propertyType.trim(),
+        phoneWhatsapp: v.phoneWhatsapp,
+        phone2: v.phone2.trim(),
+        phone2Whatsapp: v.phone2Whatsapp,
+        clientType: property.client,
+        propertyType: property.label,
         area: v.area.trim(),
         address: v.address.trim(),
         lat: v.lat,
@@ -295,17 +382,21 @@ export default function ServiceBook() {
       wa.cancel();
       const err = e instanceof ApiError ? e : new ApiError('تعذر إرسال الطلب، حاول مرة أخرى', 0, 'UNKNOWN');
       if (err.code === 'PRICE_CHANGED') {
-        // تغيّر السعر: نعيد حسابه ونطلب الموافقة من جديد
         setPriceChanged(true);
         set('accept', false);
         setQuote(null);
-        api.post<VisitQuote>('/site-services/quote', { serviceIds, zoneId: v.zoneId, problemIds: v.problemIds, deviceIds: v.deviceIds, urgency: v.urgency }).then(setQuote).catch(() => undefined);
+        api.post<VisitQuote>('/site-services/quote', quoteBody).then(setQuote).catch(() => undefined);
+      } else if (err.code === 'SLOT_TAKEN') {
+        setV((x) => ({ ...x, time: '' }));
+        setSlotsKey((k) => k + 1);
+        setErrors({ time: err.message });
+        goTo(2);
       } else {
         const key = err.field ? err.field.replace(/^details\./, '') : null;
         if (key) {
           setErrors({ [key]: err.message });
-          const i = key.startsWith('extra.') ? 1 : stepOf(key);
-          if (i < 3) goTo(i);
+          const i = stepOf(key);
+          if (i !== step) goTo(i);
         }
         setSubmitError(err.message);
       }
@@ -318,7 +409,7 @@ export default function ServiceBook() {
     return (
       <SubmissionSuccess noun="الطلب" title="تم استلام طلبك" number={done.number} refCode={done.ref} whatsapp={done.whatsapp} message={done.message}>
         <dl className="divide-y divide-line rounded-xl border border-line">
-          <Summary label="الخدمة" value={s.name} />
+          <Summary label="الخدمة" value={s?.name ?? ''} />
           <Summary label="الموعد المطلوب" value={formatDate(done.scheduledAt, true)} />
           <Summary label="الإجمالي المعتمد" value={formatJOD(done.total)} />
         </dl>
@@ -328,17 +419,16 @@ export default function ServiceBook() {
   }
 
   const err = (k: string) => errors[k] || undefined;
-  // خدمة للمنشآت فقط: لا يظهر خيار "فرد"
-  const clientTypes = s.audiences.includes('HOME') ? d.clientTypes : d.clientTypes.filter((c) => c.value !== 'INDIVIDUAL');
-  const terms = [...d.generalTerms, ...(quote?.terms ?? (s.terms ? [s.terms] : []))];
+  const terms = [...c.generalTerms, ...(quote?.terms ?? (s?.terms ? [s.terms] : []))];
+  const hasStructural = devices.some((x) => /شميدت|ميول|الليزري|هبوط/.test(x.name));
 
   return (
     <>
       <header className="border-b border-line bg-subtle">
         <div className="container py-7 md:py-10">
-          <Breadcrumbs items={[{ to: '/services', label: 'الخدمات والمعاينات' }, { to: `/services/${s.slug}`, label: s.name }, { label: 'الحجز' }]} className="mb-4" />
-          <h1 className="max-w-4xl text-[1.625rem] leading-snug md:text-[2.125rem]">{s.name}</h1>
-          <p className="mt-2 max-w-2xl text-muted">سعر الزيارة ثابت حسب المنطقة، والأجهزة الإضافية برسومها فقط. ترى المبلغ النهائي قبل التأكيد.</p>
+          <Breadcrumbs items={[{ to: '/services', label: 'الخدمات والمعاينات' }, ...(s ? [{ to: `/services/${s.slug}`, label: s.name }] : []), { label: 'الحجز' }]} className="mb-4" />
+          <h1 className="max-w-4xl text-[1.625rem] leading-snug md:text-[2.125rem]">{s ? s.name : 'احجز زيارة كشف فني'}</h1>
+          <p className="mt-2 max-w-2xl text-muted">زيارة الكشف الفني الأساسي تشمل تقريرًا بحالة الموقع وعرض سعر للأعمال المطلوبة. ترى المبلغ النهائي قبل التأكيد.</p>
         </div>
       </header>
 
@@ -351,186 +441,45 @@ export default function ServiceBook() {
                 noValidate
                 onSubmit={(e) => {
                   e.preventDefault();
-                  if (step < 3) next();
+                  if (step < STEPS.length - 1) next();
                   else void submit();
                 }}
               >
                 {step === 0 && (
-                  <div className="space-y-7">
-                    <StepHeading stepKey={step} title="ماذا تحتاج؟" />
-                    {d.ownershipOptions.length > 0 && (
+                  <div className="space-y-6">
+                    <StepHeading stepKey={step} title="بيانات العقار والموقع" />
+                    {c.ownershipOptions.length > 0 && (
                       <div data-field="ownership">
                         <span className="label">صفتك بالنسبة للعقار</span>
-                        <div className="flex flex-wrap gap-2">
-                          {d.ownershipOptions.map((o) => (
-                            <button
-                              key={o}
-                              type="button"
-                              aria-pressed={v.ownership === o}
-                              onClick={() => set('ownership', o)}
-                              className={cx('min-h-[42px] rounded-full border px-4 text-sm transition-colors', v.ownership === o ? 'border-ink bg-inverse font-semibold text-inverse-fg' : 'border-line-strong hover:border-ink/50')}
-                            >
-                              {o}
-                            </button>
-                          ))}
-                        </div>
+                        <Chips options={c.ownershipOptions} value={v.ownership} onChange={(x) => set('ownership', x)} />
                         {err('ownership') && <p className="mt-1.5 text-sm text-danger">{err('ownership')}</p>}
                       </div>
                     )}
-                    {urgencies.length > 1 && (
-                      <fieldset data-field="urgency">
-                        <legend className="label">أولوية الزيارة</legend>
-                        <div className="grid gap-2 sm:grid-cols-3">
-                          {urgencies.map(([u, price]) => (
+                    <fieldset data-field="propertyType">
+                      <legend className="label">نوع العقار</legend>
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                        {PROPERTIES.map((p) => {
+                          const on = v.propertyType === p.label;
+                          return (
                             <label
-                              key={u}
+                              key={p.label}
                               className={cx(
-                                'relative flex cursor-pointer flex-col gap-1 rounded-xl border p-3.5 transition-all',
-                                v.urgency === u ? (u === 'EMERGENCY' ? 'border-danger ring-2 ring-danger/25' : u === 'URGENT' ? 'border-warn ring-2 ring-warn/25' : 'border-brand-600 ring-2 ring-brand-600/25') : 'border-line hover:border-ink/40',
+                                'flex min-h-[3.5rem] cursor-pointer items-center gap-2.5 rounded-xl border px-3.5 py-2.5 font-semibold transition-all',
+                                on ? 'border-brand-600 bg-brand-50/60 ring-2 ring-brand-600/25 dark:bg-brand-900/20' : 'border-line-strong hover:border-ink/50',
                               )}
                             >
-                              <input type="radio" name="urgency" className="sr-only" checked={v.urgency === u} onChange={() => set('urgency', u)} />
-                              <span className="flex items-center justify-between gap-2">
-                                <span className="flex items-center gap-1.5 font-bold">
-                                  <span className={cx('h-2.5 w-2.5 rounded-full', u === 'EMERGENCY' ? 'bg-danger soft-ping' : u === 'URGENT' ? 'bg-warn' : 'bg-success')} />
-                                  {URGENCY_LABEL[u]}
-                                </span>
-                                <span className="font-display text-[15px] font-bold">{u === 'NORMAL' ? (s.priceInside === s.priceOutside ? formatJOD(s.priceInside) : `من ${formatJOD(Math.min(s.priceInside, s.priceOutside))}`) : formatJOD(price!)}</span>
+                              <input type="radio" name="propertyType" className="sr-only" checked={on} onChange={() => set('propertyType', p.label)} />
+                              <Icon name={p.icon} className={cx('h-5 w-5 shrink-0', on ? 'text-brand-700 dark:text-brand-300' : 'text-muted')} />
+                              <span className="min-w-0">
+                                <span className="block leading-tight">{p.label}</span>
+                                <span className="block text-[12px] font-normal text-muted">{p.audience === 'HOME' ? 'منازل وشقق' : 'شركات ومنشآت'}</span>
                               </span>
-                              <span className="text-[13px] leading-snug text-muted">{URGENCY_HINT[u]}</span>
                             </label>
-                          ))}
-                        </div>
-                      </fieldset>
-                    )}
-                    <div data-field="requestType">
-                      <ChoiceGroup
-                        label="نوع الطلب"
-                        value={v.requestType || undefined}
-                        onChange={(x) => set('requestType', x)}
-                        options={s.requestTypes.map((t) => ({ value: t.value, label: t.label }))}
-                        error={err('requestType')}
-                      />
-                    </div>
-
-                    {needsProblems && (
-                      <fieldset data-field="problemIds">
-                        <legend className="label">{s.optionsLabel || 'ما المشكلة التي تواجهها؟ (يمكن اختيار أكثر من مشكلة)'}</legend>
-                        <div className={cx('grid gap-2', !s.problems.some((p) => p.description.length) && 'sm:grid-cols-2')}>
-                          {s.problems.map((p) => (
-                            <Checkbox
-                              key={p.id}
-                              label={p.quoteRequired ? `${p.name} — ${SCOPE_PRICED}` : p.name}
-                              description={p.description.length ? p.description.join(' · ') : undefined}
-                              checked={v.problemIds.includes(p.id)}
-                              onChange={() => toggle('problemIds', p.id)}
-                            />
-                          ))}
-                        </div>
-                        {err('problemIds') && <p className="mt-1.5 text-sm text-danger">{err('problemIds')}</p>}
-                      </fieldset>
-                    )}
-
-                    {s.devices.length > 0 && (
-                      <fieldset data-field="deviceIds">
-                        <legend className="label">الأجهزة والفحوصات الإضافية (اختياري)</legend>
-                        {needsProblems && !v.problemIds.length ? (
-                          <p className="rounded-lg bg-subtle px-4 py-3 text-sm text-muted">اختر المشكلة أولًا لتظهر لك الأجهزة المناسبة لها.</p>
-                        ) : devices.length ? (
-                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                            {devices.map((x) => (
-                              <DeviceCard
-                                key={x.id}
-                                device={x}
-                                mode="select"
-                                selected={v.deviceIds.includes(x.id)}
-                                onToggle={() => toggle('deviceIds', x.id)}
-                                note={x.accessoryIds.length ? `يشمل مجانًا: ${s.devices.filter((y) => x.accessoryIds.includes(y.id)).map((y) => cleanDeviceName(y.name)).join('، ')} 🎁` : undefined}
-                              />
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="rounded-lg bg-subtle px-4 py-3 text-sm text-muted">لا تحتاج المشكلة المختارة أجهزة إضافية — المعاينة الأساسية تكفي.</p>
-                        )}
-                        <p className="mt-2 text-[13px] text-muted">إضافة جهاز لا تعني زيارة جديدة — تُضاف رسومه فقط لنفس الزيارة.</p>
-                      </fieldset>
-                    )}
-
-                    {freeAdds.length > 0 && (
-                      <section>
-                        <h3 className="label">مشمول مجانًا في زيارتك 🎁</h3>
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                          {freeAdds.map((x) => (
-                            <DeviceCard key={x.id} device={x} mode="locked" />
-                          ))}
-                        </div>
-                      </section>
-                    )}
-
-                    {d.combinable.length > 0 && (
-                      <fieldset>
-                        <legend className="label">خدمات أخرى في نفس الموقع ونفس الزيارة (اختياري)</legend>
-                        <div className="grid gap-2 sm:grid-cols-2">
-                          {d.combinable.map((c) => (
-                            <Checkbox key={c.id} label={c.name} description={`زيارة منفردة: ${formatJOD(c.priceInside)} داخل عمّان`} checked={v.extraIds.includes(c.id)} onChange={() => toggle('extraIds', c.id)} />
-                          ))}
-                        </div>
-                        <p className="mt-2 text-[13px] text-muted">عند اختيار أكثر من خدمة يُحتسب سعر الزيارة المجمعة الموحد إن كان أوفر لك.</p>
-                      </fieldset>
-                    )}
-                  </div>
-                )}
-
-                {step === 1 && (
-                  <div className="space-y-6">
-                    <StepHeading stepKey={step} title="بياناتك وموقع المعاينة" />
-                    <AccountNote what="الطلب" />
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <Input data-field="name" label="الاسم" value={v.name} maxLength={100} onChange={(e) => set('name', e.target.value)} error={err('name')} autoComplete="name" />
-                      <Input data-field="phone" label="رقم الهاتف" type="tel" inputMode="tel" className="ltr text-start" value={v.phone} onChange={(e) => set('phone', e.target.value)} error={err('phone')} autoComplete="tel" />
-                    </div>
-                    <div data-field="clientType">
-                      <ChoiceGroup
-                        label="نوع العميل"
-                        columns={3}
-                        value={v.clientType || undefined}
-                        onChange={(x) => {
-                          set('clientType', x);
-                          if (!PROPERTY_TYPES[x].includes(v.propertyType)) set('propertyType', '');
-                        }}
-                        options={clientTypes.map((c) => ({ value: c.value, label: c.label }))}
-                        error={err('clientType')}
-                      />
-                    </div>
-                    {v.clientType && (
-                      <div data-field="propertyType">
-                        <span className="label">نوع العقار أو المنشأة</span>
-                        <div className="flex flex-wrap gap-2">
-                          {PROPERTY_TYPES[v.clientType].map((p) => (
-                            <button
-                              key={p}
-                              type="button"
-                              onClick={() => set('propertyType', p)}
-                              className={cx('min-h-[40px] rounded-full border px-3.5 text-sm', v.propertyType === p ? 'border-ink bg-inverse font-semibold text-inverse-fg' : 'border-line-strong hover:border-ink/50')}
-                            >
-                              {p}
-                            </button>
-                          ))}
-                        </div>
-                        <Input label="أو اكتب نوعًا آخر" wrapperClassName="mt-3" value={PROPERTY_TYPES[v.clientType].includes(v.propertyType) ? '' : v.propertyType} maxLength={80} onChange={(e) => set('propertyType', e.target.value)} error={err('propertyType')} />
+                          );
+                        })}
                       </div>
-                    )}
-                    {s.formFields.length > 0 && (
-                      <section className="space-y-4 rounded-xl border border-line p-4">
-                        <h3 className="text-base">تفاصيل المشروع</h3>
-                        {s.formFields.map((f) => (
-                          <ExtraField key={f.key} field={f} value={extra[f.key]} error={err(`extra.${f.key}`)} onChange={(x) => {
-                            setExtra((e) => ({ ...e, [f.key]: x }));
-                            setErrors((e) => ({ ...e, [`extra.${f.key}`]: '' }));
-                          }} />
-                        ))}
-                      </section>
-                    )}
+                      {err('propertyType') && <p className="mt-1.5 text-sm text-danger">{err('propertyType')}</p>}
+                    </fieldset>
                     <div className="grid gap-4 sm:grid-cols-2">
                       <Select
                         data-field="zoneId"
@@ -538,15 +487,14 @@ export default function ServiceBook() {
                         value={v.zoneId}
                         onChange={(e) => {
                           set('zoneId', e.target.value);
-                          // المنطقة السابقة لا تخص المحافظة الجديدة
-                          const nz = d.zones.find((z) => z.id === e.target.value);
+                          const nz = c.zones.find((z) => z.id === e.target.value);
                           if (nz?.regions.length && !nz.regions.includes(v.area)) set('area', '');
                           setAreaOther(false);
                         }}
                         error={err('zoneId')}
                       >
                         <option value="">اختر…</option>
-                        {d.zones.map((z) => (
+                        {c.zones.map((z) => (
                           <option key={z.id} value={z.id}>
                             {z.name} — {TIER_LABEL[z.tier]}
                             {z.travelFee > 0 ? ` (+ انتقال ${formatJOD(z.travelFee)})` : ''}
@@ -575,15 +523,7 @@ export default function ServiceBook() {
                           <option value="__other">منطقة أخرى (اكتبها)</option>
                         </Select>
                       ) : (
-                        <Input
-                          data-field="area"
-                          label="المنطقة / الحي"
-                          placeholder="مثال: خلدا"
-                          value={v.area}
-                          maxLength={120}
-                          onChange={(e) => set('area', e.target.value)}
-                          error={err('area')}
-                        />
+                        <Input data-field="area" label="المنطقة / الحي" placeholder="مثال: خلدا" value={v.area} maxLength={120} onChange={(e) => set('area', e.target.value)} error={err('area')} />
                       )}
                     </div>
                     {areaOther && (
@@ -596,18 +536,278 @@ export default function ServiceBook() {
                         هذه المنطقة بعيدة عن نطاق عملنا المعتاد — سنؤكد لك إمكانية الزيارة قبل الموعد.
                       </Alert>
                     )}
-                    <Textarea data-field="address" label="العنوان بالتفصيل" placeholder="الشارع، رقم البناية، الطابق، علامة مميزة" value={v.address} maxLength={400} rows={3} onChange={(e) => set('address', e.target.value)} error={err('address')} />
-                    <LocationPicker lat={v.lat} lng={v.lng} onChange={(lat, lng) => setV((x) => ({ ...x, lat, lng }))} hint="تحديد الموقع على الخريطة اختياري، ويساعد الفني على الوصول بسرعة." />
+                    <Textarea data-field="address" label="العنوان بالتفصيل" placeholder="الشارع، رقم البناية، الطابق، علامة مميزة" value={v.address} maxLength={400} rows={2} onChange={(e) => set('address', e.target.value)} error={err('address')} />
+
+                    <section className="rounded-xl border border-line p-4" data-field="lat">
+                      <h3 className="flex items-center gap-2 text-base">
+                        <Icon name="pin" className="h-5 w-5 text-brand-700 dark:text-brand-300" /> موقع العقار على الخريطة <span className="text-sm font-normal text-danger">(إجباري)</span>
+                      </h3>
+                      <p className="mt-1 text-sm text-muted">اختر الطريقة الأسهل لك: تحديد موقعك الحالي بالـ GPS، لصق رابط الموقع من خرائط Google، أو فتح الخريطة وتحديد المكان يدويًا.</p>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+                        <Input
+                          label="رابط الموقع من الخريطة"
+                          placeholder="https://maps.app.goo.gl/…"
+                          className="ltr text-start"
+                          inputMode="url"
+                          value={mapLink}
+                          onChange={(e) => {
+                            setMapLink(e.target.value);
+                            setMapLinkState({});
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              void readMapLink();
+                            }
+                          }}
+                          error={mapLinkState.error}
+                        />
+                        <Button variant="outline" loading={mapLinkState.loading} disabled={!mapLink.trim()} onClick={() => void readMapLink()}>
+                          <Icon name="map" className="h-4 w-4" /> اعتماد الرابط
+                        </Button>
+                      </div>
+                      {mapLinkState.ok && <p className="mt-1.5 text-sm font-semibold text-success">تم تحديد الموقع من الرابط ✓</p>}
+                      <div className="mt-4">
+                        <LocationPicker
+                          lat={v.lat}
+                          lng={v.lng}
+                          required
+                          error={err('lat')}
+                          onChange={(lat, lng) => {
+                            setV((x) => ({ ...x, lat, lng }));
+                            setErrors((e) => ({ ...e, lat: '' }));
+                          }}
+                          hint="أو استخدم موقعك الحالي (GPS) أو حدد المكان على الخريطة."
+                        />
+                      </div>
+                      {v.lat != null && v.lng != null && (
+                        <a href={mapsLink(v.lat, v.lng)} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-brand-700 hover:underline dark:text-brand-300">
+                          <Icon name="external" className="h-4 w-4" /> تأكد من الموقع على خرائط Google
+                        </a>
+                      )}
+                    </section>
+                  </div>
+                )}
+
+                {step === 1 && (
+                  <div className="space-y-6">
+                    <StepHeading stepKey={step} title="معلومات التواصل" description="رقمان للتواصل حتى يصل الفني إليك بسهولة يوم الزيارة." />
+                    <AccountNote what="الطلب" />
+                    <Input data-field="name" label="الاسم" value={v.name} maxLength={100} onChange={(e) => set('name', e.target.value)} error={err('name')} autoComplete="name" />
+                    <PhoneRow field="phone" label="رقم الهاتف الأساسي" value={v.phone} onChange={(x) => set('phone', x)} wa={v.phoneWhatsapp} onWa={(x) => set('phoneWhatsapp', x)} error={err('phone')} autoComplete="tel" />
+                    <PhoneRow field="phone2" label="رقم هاتف ثانوي" value={v.phone2} onChange={(x) => set('phone2', x)} wa={v.phone2Whatsapp} onWa={(x) => set('phone2Whatsapp', x)} error={err('phone2')} />
                   </div>
                 )}
 
                 {step === 2 && (
                   <div className="space-y-6">
-                    <StepHeading stepKey={step} title="وصف المشكلة والموعد" />
-                    <Textarea data-field="description" label={s.optionsLabel ? 'وصف المشكلة أو الهدف من الطلب' : 'وصف المشكلة'} placeholder={s.optionsLabel ? 'مثال: الزوار يضيعون بين المستودعات، ونريد لافتات واضحة لمناطق التحميل والمخارج.' : 'مثال: رطوبة في جدار غرفة النوم بجانب الحمام، ظهرت قبل شهر وتزيد في الشتاء.'} value={v.description} maxLength={3000} rows={4} onChange={(e) => set('description', e.target.value)} error={err('description')} />
+                    <StepHeading stepKey={step} title="اختر موعد الزيارة" description="اختر اليوم ثم الموعد المناسب لك من المواعيد المتاحة." />
+                    <div data-field="time">
+                      <SlotPicker
+                        endpoint="/site-services/slots"
+                        reloadKey={slotsKey}
+                        date={v.date}
+                        time={v.time}
+                        onChange={(date, time) => {
+                          setV((x) => ({ ...x, date, time }));
+                          setErrors((e) => ({ ...e, time: '' }));
+                        }}
+                        error={err('time')}
+                        note={<span>مواعيد الزيارات محددة بفارق ساعة ونصف إلى ساعتين حتى يصل الفريق في وقته. الموعد المكتمل يظهر معطّلًا، ويتواصل معك الفريق لتأكيده.</span>}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {step === 3 && (
+                  <div className="space-y-7">
+                    <StepHeading stepKey={step} title="نوع المشكلة والخدمة المطلوبة" />
+                    <Alert tone="info" title="زيارة الكشف الفني الأساسي">
+                      تشمل الزيارة معاينة الموقع وتقريرًا بحالته وتقديم عرض سعر للأعمال المطلوبة. سعر الزيارة يظهر على كل خدمة، والإجمالي النهائي يظهر قبل التأكيد.
+                    </Alert>
+                    {serviceDropped && (
+                      <Alert tone="warn" title="اختر خدمة مناسبة لنوع العقار">
+                        خدمة «{serviceDropped}» غير متاحة لـ {v.propertyType}. اختر من الخدمات التالية.
+                      </Alert>
+                    )}
+                    <fieldset data-field="slug">
+                      <legend className="label">
+                        الخدمة — {audience === 'BUSINESS' ? 'شركات ومصانع' : 'منازل وشقق'}
+                      </legend>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {services.map((x) => {
+                          const on = v.slug === x.slug;
+                          return (
+                            <label
+                              key={x.id}
+                              className={cx(
+                                'flex cursor-pointer flex-col gap-1 rounded-xl border p-3.5 transition-all',
+                                on ? 'border-brand-600 bg-brand-50/50 ring-2 ring-brand-600/25 dark:bg-brand-900/20' : 'border-line hover:border-ink/40',
+                              )}
+                            >
+                              <input type="radio" name="service" className="sr-only" checked={on} onChange={() => chooseService(x.slug)} />
+                              <span className="flex items-start justify-between gap-2">
+                                <span className="font-bold leading-snug">{x.name}</span>
+                                <span className={cx('mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border-2', on ? 'border-brand-600 bg-brand-600 text-white' : 'border-line-strong')}>
+                                  {on && <Icon name="check" className="h-3 w-3" />}
+                                </span>
+                              </span>
+                              <span className="line-clamp-2 text-[13px] text-muted">{x.summary}</span>
+                              <span className="mt-auto pt-1 text-sm font-semibold">
+                                {x.priceOnRequest ? SCOPE_PRICED : zone ? `${formatJOD(zone.tier === 'INSIDE_AMMAN' ? x.priceInside : x.priceOutside)} — ${TIER_LABEL[zone.tier]}` : `من ${formatJOD(Math.min(x.priceInside, x.priceOutside))}`}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                      {err('slug') && <p className="mt-1.5 text-sm text-danger">{err('slug')}</p>}
+                    </fieldset>
+
+                    {v.slug && !s && !detail.error && <Skeleton className="h-48 w-full" />}
+                    {detail.error && v.slug && <ErrorState message={detail.error.message} onRetry={detail.reload} />}
+
+                    {s && d && (
+                      <>
+                        {s.requestTypes.length > 1 && (
+                          <div data-field="requestType">
+                            <ChoiceGroup label="نوع الطلب" value={v.requestType || undefined} onChange={(x) => set('requestType', x)} options={s.requestTypes.map((t) => ({ value: t.value, label: t.label }))} error={err('requestType')} />
+                          </div>
+                        )}
+
+                        {needsProblems && (
+                          <fieldset data-field="problemIds">
+                            <legend className="label">{s.optionsLabel || 'ما المشكلة التي تواجهها؟ (يمكن اختيار أكثر من مشكلة)'}</legend>
+                            <div className={cx('grid gap-2', !s.problems.some((p) => p.description.length) && 'sm:grid-cols-2')}>
+                              {s.problems.map((p) => (
+                                <Checkbox
+                                  key={p.id}
+                                  label={p.quoteRequired ? `${p.name} — ${SCOPE_PRICED}` : p.name}
+                                  description={p.description.length ? p.description.join(' · ') : undefined}
+                                  checked={v.problemIds.includes(p.id)}
+                                  onChange={() => toggle('problemIds', p.id)}
+                                />
+                              ))}
+                            </div>
+                            {err('problemIds') && <p className="mt-1.5 text-sm text-danger">{err('problemIds')}</p>}
+                          </fieldset>
+                        )}
+
+                        {urgencies.length > 1 && (
+                          <fieldset data-field="urgency">
+                            <legend className="label">أولوية الزيارة</legend>
+                            <div className="grid gap-2 sm:grid-cols-3">
+                              {urgencies.map(([u, price]) => (
+                                <label
+                                  key={u}
+                                  className={cx(
+                                    'relative flex cursor-pointer flex-col gap-1 rounded-xl border p-3.5 transition-all',
+                                    v.urgency === u ? (u === 'EMERGENCY' ? 'border-danger ring-2 ring-danger/25' : u === 'URGENT' ? 'border-warn ring-2 ring-warn/25' : 'border-brand-600 ring-2 ring-brand-600/25') : 'border-line hover:border-ink/40',
+                                  )}
+                                >
+                                  <input type="radio" name="urgency" className="sr-only" checked={v.urgency === u} onChange={() => set('urgency', u)} />
+                                  <span className="flex items-center justify-between gap-2">
+                                    <span className="flex items-center gap-1.5 font-bold">
+                                      <span className={cx('h-2.5 w-2.5 rounded-full', u === 'EMERGENCY' ? 'soft-ping bg-danger' : u === 'URGENT' ? 'bg-warn' : 'bg-success')} />
+                                      {URGENCY_LABEL[u]}
+                                    </span>
+                                    <span className="font-display text-[15px] font-bold">{u === 'NORMAL' ? formatJOD(zone?.tier === 'OUTSIDE_AMMAN' ? s.priceOutside : s.priceInside) : formatJOD(price!)}</span>
+                                  </span>
+                                  <span className="text-[13px] leading-snug text-muted">{URGENCY_HINT[u]}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </fieldset>
+                        )}
+
+                        {s.formFields.length > 0 && (
+                          <section className="space-y-4 rounded-xl border border-line p-4">
+                            <h3 className="text-base">تفاصيل المشروع</h3>
+                            {s.formFields.map((f) => (
+                              <ExtraField
+                                key={f.key}
+                                field={f}
+                                value={extra[f.key]}
+                                error={err(`extra.${f.key}`)}
+                                onChange={(x) => {
+                                  setExtra((e) => ({ ...e, [f.key]: x }));
+                                  setErrors((e) => ({ ...e, [`extra.${f.key}`]: '' }));
+                                }}
+                              />
+                            ))}
+                          </section>
+                        )}
+
+                        {s.devices.length > 0 && (
+                          <fieldset data-field="deviceIds">
+                            <legend className="label">أجهزة الفحص الإضافية (اختياري)</legend>
+                            <p className="-mt-1 mb-3 text-sm text-muted">تظهر هنا الأجهزة الخاصة بـ «{s.name}». اضغط «التفاصيل» لقراءة آلية عمل الجهاز وفائدته الفنية.</p>
+                            {needsProblems && !v.problemIds.length ? (
+                              <p className="rounded-lg bg-subtle px-4 py-3 text-sm text-muted">اختر المشكلة أولًا لتظهر لك الأجهزة المناسبة لها.</p>
+                            ) : sortedDevices.length ? (
+                              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                {sortedDevices.map((x) => (
+                                  <div key={x.id} className="relative">
+                                    {recommended.has(x.id) && <span className="absolute -top-2 end-3 z-10 rounded-full bg-success px-2 py-0.5 text-[11px] font-bold text-white shadow">مقترح لمشكلتك</span>}
+                                    <DeviceCard
+                                      device={x}
+                                      mode="select"
+                                      selected={v.deviceIds.includes(x.id)}
+                                      onToggle={() => toggle('deviceIds', x.id)}
+                                      note={x.accessoryIds.length ? `يشمل مجانًا: ${s.devices.filter((y) => x.accessoryIds.includes(y.id)).map((y) => cleanDeviceName(y.name)).join('، ')} 🎁` : undefined}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="rounded-lg bg-subtle px-4 py-3 text-sm text-muted">لا تحتاج هذه الخدمة أجهزة إضافية — المعاينة الأساسية تكفي.</p>
+                            )}
+                            <p className={cx('mt-3 rounded-lg border px-3.5 py-2.5 text-[13px] leading-relaxed', hasStructural ? 'border-warn/40 bg-warn/[0.06] font-semibold' : 'border-line bg-subtle text-muted')}>{ADDON_NOTE}</p>
+                          </fieldset>
+                        )}
+
+                        {freeAdds.length > 0 && (
+                          <section>
+                            <h3 className="label">مشمول مجانًا في زيارتك 🎁</h3>
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                              {freeAdds.map((x) => (
+                                <DeviceCard key={x.id} device={x} mode="locked" />
+                              ))}
+                            </div>
+                          </section>
+                        )}
+
+                        {d.combinable.length > 0 && (
+                          <fieldset>
+                            <legend className="label">خدمات أخرى في نفس الموقع ونفس الزيارة (اختياري)</legend>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              {d.combinable.map((x) => (
+                                <Checkbox key={x.id} label={x.name} description={`زيارة منفردة: ${formatJOD(x.priceInside)} داخل عمّان`} checked={v.extraIds.includes(x.id)} onChange={() => toggle('extraIds', x.id)} />
+                              ))}
+                            </div>
+                            <p className="mt-2 text-[13px] text-muted">عند اختيار أكثر من خدمة يُحتسب سعر الزيارة المجمعة الموحد إن كان أوفر لك.</p>
+                          </fieldset>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {step === 4 && (
+                  <div className="space-y-6">
+                    <StepHeading stepKey={step} title="الصور والتأكيد" description="الصور الواقعية للموقع أو المشكلة ترفع دقة تقرير المعاينة." />
+                    <Textarea
+                      data-field="description"
+                      label={s?.optionsLabel ? 'وصف المشكلة أو الهدف من الطلب' : 'وصف المشكلة'}
+                      placeholder="مثال: تشققات في جدار الصالون ظهرت قبل شهر وتزيد مع الوقت."
+                      value={v.description}
+                      maxLength={3000}
+                      rows={3}
+                      onChange={(e) => set('description', e.target.value)}
+                      error={err('description')}
+                    />
                     <Input data-field="problemLocation" label="مكان ظهور المشكلة (اختياري)" placeholder="مثال: الحمام الرئيسي، سقف المطبخ، الطابق الأرضي" value={v.problemLocation} maxLength={300} onChange={(e) => set('problemLocation', e.target.value)} />
                     <div data-field="photos">
-                      <FilePicker label="صور المشكلة" files={photos} onChange={setPhotos} max={6} optional hint="حتى 6 صور — تساعد الفني على التحضير." />
+                      <FilePicker label="صور الموقع أو المشكلة" files={photos} onChange={setPhotos} max={6} optional hint="حتى 6 صور واقعية — تساعد الفني على التحضير وترفع دقة التقرير." />
                     </div>
                     <div data-field="video">
                       <span className="label">
@@ -633,20 +833,10 @@ export default function ServiceBook() {
                       {err('video') && <p className="mt-1.5 text-sm text-danger">{err('video')}</p>}
                     </div>
                     <div data-field="documents">
-                      <FilePicker label="مخطط الموقع أو ملفات (صور أو PDF)" files={documents} onChange={setDocuments} max={5} allowPdf maxPdfMB={20} optional hint="مثل مخطط المنشأة، صور اللافتات أو المباني." />
-                    </div>
-                    <div data-field="time">
-                      <span className="label">الموعد المناسب للزيارة</span>
-                      <SlotPicker endpoint="/site-services/slots" date={v.date} time={v.time} onChange={(date, time) => setV((x) => ({ ...x, date, time }))} error={err('time')} />
-                      <p className="mt-2 text-[13px] text-muted">الموعد مبدئي — يتواصل معك الفريق لتأكيده. المدة التقديرية للزيارة لتنظيم المواعيد فقط ولا تؤثر على السعر.</p>
+                      <FilePicker label="مخطط الموقع أو ملفات (صور أو PDF)" files={documents} onChange={setDocuments} max={5} allowPdf maxPdfMB={20} optional hint="اختياري — مثل مخطط العقار أو تقرير سابق." />
                     </div>
                     <Textarea data-field="notes" label="ملاحظات إضافية (اختياري)" value={v.notes} maxLength={1500} rows={2} onChange={(e) => set('notes', e.target.value)} />
-                  </div>
-                )}
 
-                {step === 3 && (
-                  <div className="space-y-6">
-                    <StepHeading stepKey={step} title="راجع السعر وأكّد الحجز" description="لا يُؤكد الحجز قبل موافقتك على ملخص السعر والشروط." />
                     {priceChanged && (
                       <Alert tone="info" title="تغيّر السعر">
                         تم تحديث الأسعار منذ فتحت الصفحة. راجع الملخص الجديد ثم وافق وأكّد الحجز.
@@ -654,37 +844,36 @@ export default function ServiceBook() {
                     )}
                     {quote ? <PriceSummary lines={quote.lines} total={quote.total} /> : quoteError ? <Alert tone="error">{quoteError}</Alert> : <Skeleton className="h-40 w-full" />}
                     <ReviewSection
-                      title="الطلب"
+                      title="العقار والموقع"
                       onEdit={() => goTo(0)}
                       rows={[
-                        ['الخدمة', quote?.services.map((x) => x.name).join('، ') ?? s.name],
+                        ['نوع العقار', v.propertyType],
                         ['صفتك', v.ownership],
-                        ['الأولوية', urgencies.length > 1 ? URGENCY_LABEL[v.urgency] : ''],
-                        ['نوع الطلب', v.requestType ? REQUEST_TYPE_LABEL[v.requestType] : ''],
-                        [s.optionsLabel ? 'الخدمات المطلوبة' : 'المشكلة', s.problems.filter((p) => v.problemIds.includes(p.id)).map((p) => p.name).join('، ')],
-                        ['الأجهزة', s.devices.length ? [...s.devices.filter((x) => v.deviceIds.includes(x.id)), ...freeAdds].map((x) => cleanDeviceName(x.name)).join('، ') || 'بدون أجهزة إضافية' : ''],
+                        ['المنطقة', zone ? `${zone.name} (${TIER_LABEL[zone.tier]}) — ${v.area}` : ''],
+                        ['العنوان', v.address],
+                        ['الموقع', v.lat != null && v.lng != null ? <a href={mapsLink(v.lat, v.lng)} target="_blank" rel="noopener noreferrer" className="ltr underline-offset-4 hover:underline">{v.lat.toFixed(5)}, {v.lng.toFixed(5)}</a> : ''],
                       ]}
                     />
                     <ReviewSection
-                      title="الموقع"
+                      title="التواصل والموعد"
                       onEdit={() => goTo(1)}
                       rows={[
                         ['الاسم', v.name],
-                        ['الهاتف', <span className="ltr">{v.phone}</span>],
-                        ['نوع العميل', v.clientType ? `${CLIENT_TYPE_LABEL[v.clientType]} — ${v.propertyType}` : ''],
-                        ...s.formFields.map((f): [string, string] => [f.label, Array.isArray(extra[f.key]) ? (extra[f.key] as string[]).join('، ') : String(extra[f.key] ?? '')]),
-                        ['المنطقة', zone ? `${zone.name} (${TIER_LABEL[zone.tier]}) — ${v.area}` : ''],
-                        ['العنوان', v.address],
+                        ['الهاتف', <span className="ltr">{v.phone}{v.phoneWhatsapp ? ' · واتساب' : ''}</span>],
+                        ['الرقم الثانوي', <span className="ltr">{v.phone2}{v.phone2Whatsapp ? ' · واتساب' : ''}</span>],
+                        ['الموعد', v.date && v.time ? `${longDate(v.date)} — ${formatSlot(v.time)}` : ''],
                       ]}
                     />
                     <ReviewSection
-                      title="التفاصيل والموعد"
-                      onEdit={() => goTo(2)}
+                      title="الخدمة"
+                      onEdit={() => goTo(3)}
                       rows={[
-                        ['الوصف', v.description],
-                        ['المكان', v.problemLocation],
-                        ['المرفقات', photos.length || video || documents.length ? [photos.length && `${photos.length} صورة`, video && 'فيديو', documents.length && `${documents.length} ملف`].filter(Boolean).join(' + ') : ''],
-                        ['الموعد', v.date && v.time ? `${longDate(v.date)} — ${formatSlot(v.time)}` : ''],
+                        ['الخدمة', quote?.services.map((x) => x.name).join('، ') ?? s?.name ?? ''],
+                        ['نوع الطلب', v.requestType ? REQUEST_TYPE_LABEL[v.requestType] : ''],
+                        ['الأولوية', urgencies.length > 1 ? URGENCY_LABEL[v.urgency] : ''],
+                        [s?.optionsLabel ? 'الخدمات المطلوبة' : 'المشكلة', s?.problems.filter((p) => v.problemIds.includes(p.id)).map((p) => p.name).join('، ') ?? ''],
+                        ['الأجهزة', s?.devices.length ? [...s.devices.filter((x) => v.deviceIds.includes(x.id)), ...freeAdds].map((x) => cleanDeviceName(x.name)).join('، ') || 'بدون أجهزة إضافية' : ''],
+                        ...(s?.formFields ?? []).map((f): [string, string] => [f.label, Array.isArray(extra[f.key]) ? (extra[f.key] as string[]).join('، ') : String(extra[f.key] ?? '')]),
                       ]}
                     />
                     <section className="rounded-xl border border-line p-4">
@@ -693,22 +882,18 @@ export default function ServiceBook() {
                         {terms.map((t) => (
                           <li key={t}>{t}</li>
                         ))}
-                        <li className="font-semibold text-ink">{quote ? (quote.visitFeePolicy === 'DEDUCTIBLE' ? 'رسوم الزيارة تُخصم من قيمة أعمال الإصلاح عند موافقتك على تنفيذها مع فرجار جروب.' : 'رسوم الزيارة مستقلة عن قيمة أعمال الإصلاح.') : s.visitFeePolicyText}</li>
+                        <li>{ADDON_NOTE.replace('ملاحظة: ', '')}</li>
+                        {s && <li className="font-semibold text-ink">{quote ? (quote.visitFeePolicy === 'DEDUCTIBLE' ? 'رسوم الزيارة تُخصم من قيمة أعمال الإصلاح عند موافقتك على تنفيذها مع فرجار جروب.' : 'رسوم الزيارة مستقلة عن قيمة أعمال الإصلاح.') : s.visitFeePolicyText}</li>}
                       </ul>
                     </section>
                     <div data-field="accept">
-                      <Checkbox
-                        label={quote ? `أوافق على ملخص السعر (${formatJOD(quote.total)}) والشروط أعلاه` : 'أوافق على ملخص السعر والشروط أعلاه'}
-                        checked={v.accept}
-                        onChange={(x) => set('accept', x)}
-                        error={err('accept')}
-                      />
+                      <Checkbox label={quote ? `أوافق على ملخص السعر (${formatJOD(quote.total)}) والشروط أعلاه` : 'أوافق على ملخص السعر والشروط أعلاه'} checked={v.accept} onChange={(x) => set('accept', x)} error={err('accept')} />
                     </div>
                     {submitError && <Alert tone="error">{submitError}</Alert>}
                   </div>
                 )}
 
-                <StepActions onBack={step > 0 ? () => goTo(step - 1) : undefined} onNext={() => (step < 3 ? next() : void submit())} nextLabel={step < 3 ? 'التالي' : 'تأكيد الحجز'} loading={submitting} />
+                <StepActions onBack={step > 0 ? () => goTo(step - 1) : undefined} onNext={() => (step < STEPS.length - 1 ? next() : void submit())} nextLabel={step < STEPS.length - 1 ? 'التالي' : 'تأكيد الحجز'} loading={submitting} />
               </form>
             </div>
           </div>
@@ -716,20 +901,24 @@ export default function ServiceBook() {
 
         <aside className="min-w-0 lg:col-span-4">
           <div className="space-y-4 lg:sticky lg:top-32">
-            {quote && step < 3 ? (
+            {quote && step < 4 ? (
               <PriceSummary lines={quote.lines} total={quote.total} title={quoting ? 'يُحدَّث السعر…' : 'السعر حتى الآن'} />
             ) : (
-              step < 3 && (
+              step < 4 && (
                 <section className="rounded-xl bg-subtle p-5">
                   <h2 className="text-lg">سعر الزيارة</h2>
-                  {s.priceOnRequest ? (
-                    <p className="mt-2 font-semibold">{SCOPE_PRICED}</p>
+                  {s ? (
+                    s.priceOnRequest ? (
+                      <p className="mt-2 font-semibold">{SCOPE_PRICED}</p>
+                    ) : (
+                      <p className="mt-2 text-[15px] text-muted">
+                        داخل عمّان <b className="text-ink">{formatJOD(s.priceInside)}</b> · خارجها <b className="text-ink">{formatJOD(s.priceOutside)}</b>
+                      </p>
+                    )
                   ) : (
-                    <p className="mt-2 text-[15px] text-muted">
-                      داخل عمّان <b className="text-ink">{formatJOD(s.priceInside)}</b> · خارجها <b className="text-ink">{formatJOD(s.priceOutside)}</b>
-                    </p>
+                    <p className="mt-2 text-[15px] text-muted">زيارة الكشف الفني الأساسي تشمل تقريرًا بحالة الموقع وعرض سعر للأعمال المطلوبة.</p>
                   )}
-                  <p className="mt-2 text-sm text-muted">{needsProblems && !v.problemIds.length ? (s.optionsLabel ? 'اختر الخدمات ثم المنطقة لترى السعر النهائي.' : 'اختر المشكلة ثم المنطقة لترى السعر النهائي.') : 'اختر المنطقة في الخطوة التالية لترى السعر النهائي.'}</p>
+                  <p className="mt-2 text-sm text-muted">يظهر السعر النهائي بعد اختيار الخدمة والمنطقة.</p>
                   {quoteError && <p className="mt-2 text-sm text-danger">{quoteError}</p>}
                 </section>
               )
@@ -742,6 +931,39 @@ export default function ServiceBook() {
         </aside>
       </div>
     </>
+  );
+}
+
+/** اختيار واحد على شكل أزرار */
+function Chips({ options, value, onChange }: { options: string[]; value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {options.map((o) => (
+        <button
+          key={o}
+          type="button"
+          aria-pressed={value === o}
+          onClick={() => onChange(o)}
+          className={cx('min-h-[42px] rounded-full border px-4 text-sm transition-colors', value === o ? 'border-ink bg-inverse font-semibold text-inverse-fg' : 'border-line-strong hover:border-ink/50')}
+        >
+          {o}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** رقم هاتف مع خانة "هل يتوفر على الرقم واتساب؟" */
+function PhoneRow({ field, label, value, onChange, wa, onWa, error, autoComplete }: { field: string; label: string; value: string; onChange: (v: string) => void; wa: boolean; onWa: (v: boolean) => void; error?: string; autoComplete?: string }) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-start">
+      <Input data-field={field} label={label} type="tel" inputMode="tel" className="ltr text-start" placeholder="07XXXXXXXX" value={value} onChange={(e) => onChange(e.target.value)} error={error} autoComplete={autoComplete} />
+      <label className={cx('flex min-h-[48px] cursor-pointer items-center gap-2 rounded-lg border px-3 text-sm transition-colors sm:mt-[1.85rem]', wa ? 'border-[#25D366] bg-[#25D366]/10 font-semibold' : 'border-line-strong')}>
+        <input type="checkbox" className="h-4 w-4 accent-[#25D366]" checked={wa} onChange={(e) => onWa(e.target.checked)} />
+        <Icon name="whatsapp" className={cx('h-4 w-4', wa ? 'text-[#1da851]' : 'text-muted')} />
+        هل يتوفر على الرقم واتساب؟
+      </label>
+    </div>
   );
 }
 

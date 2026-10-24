@@ -476,3 +476,21 @@ async function linkDevices(prisma: PrismaClient, serviceId: string, deviceIds: s
     });
   }
 }
+
+/**
+ * v3 — الحجز الموحد: "الفحص الشامل" يعرض كل أجهزة الفحص المتاحة (عدا المعدات الثقيلة للمنشآت)،
+ * وفحص الكهرباء أجهزة الكهرباء فقط، والتسربات أجهزة المياه (مربوطة في v2).
+ */
+export async function seedInspectionV3(prisma: PrismaClient) {
+  const marker = 'seed_inspection_v3';
+  if (await prisma.counter.findUnique({ where: { key: marker } })) return;
+  const general = await prisma.siteService.findFirst({ where: { slug: 'general-property-inspection', deletedAt: null } });
+  if (general) {
+    const devices = await prisma.serviceDevice.findMany({ where: { code: { in: ADDONS_ALL } }, select: { id: true, code: true } });
+    const id = (c: string) => devices.find((d) => d.code === c)?.id;
+    await linkDevices(prisma, general.id, devices.map((d) => d.id), [], ALWAYS_FREE.map(id).filter(Boolean) as string[]);
+    if (general.name === 'الفحص الفني العام للعقار') await prisma.siteService.update({ where: { id: general.id }, data: { name: 'الفحص الفني الشامل للعقار' } });
+  }
+  await prisma.counter.create({ data: { key: marker, value: 1 } });
+  console.log('✓ الحجز الموحد: أجهزة الفحص الشامل');
+}

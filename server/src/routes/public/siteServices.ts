@@ -11,12 +11,13 @@ import { requireCustomer } from '../../middleware/auth';
 import { formLimiter } from '../../middleware/rateLimit';
 import { memoryUpload, uploadGuard } from '../../middleware/upload';
 import { accountCustomer } from '../../services/customer.service';
-import { getDaySlots } from '../../services/schedule.service';
+import { getServiceDaySlots } from '../../services/schedule.service';
+import { resolveMapLink } from '../../services/mapLink';
 import { priceVisit } from '../../services/servicePricing';
 import { CLIENT_TYPE_AR, OWNERSHIP_OPTIONS, REQUEST_TYPE_AR, logEvent, parseFormFields, resolveExtra, serviceRequestMessage } from '../../services/siteServices.service';
 import { POLICIES, validateAndStore, validateFile } from '../../services/upload.service';
 import { notifyAdmin } from '../../services/whatsapp.service';
-import { dateField, latField, lngField, nameField, optionalText, phoneField, requiredText, timeField } from '../../validators/common';
+import { dateField, nameField, optionalText, phoneField, requiredText, timeField } from '../../validators/common';
 
 export const siteServicesRouter = Router();
 
@@ -43,9 +44,13 @@ siteServicesRouter.get(
     const services = await prisma.siteService.findMany({
       where: { active: true, deletedAt: null },
       orderBy: [{ featured: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
-      select: { id: true, name: true, slug: true, summary: true, audiences: true, priceInside: true, priceOutside: true, priceUrgent: true, priceEmergency: true, discountPercent: true, featured: true, priceOnRequest: true, _count: { select: { problems: true } } },
+      select: { id: true, name: true, slug: true, summary: true, audiences: true, requestTypes: true, priceInside: true, priceOutside: true, priceUrgent: true, priceEmergency: true, discountPercent: true, featured: true, priceOnRequest: true, _count: { select: { problems: true } } },
     });
+    const zones = await prisma.serviceZone.findMany({ where: { active: true }, orderBy: { sortOrder: 'asc' }, select: { id: true, name: true, tier: true, travelFee: true, requiresApproval: true, regions: true } });
     ok(res, {
+      zones: zones.map((z) => ({ ...z, travelFee: num(z.travelFee) })),
+      ownershipOptions: OWNERSHIP_OPTIONS,
+      generalTerms: GENERAL_TERMS,
       services: services.map(({ _count, ...s }) => ({ ...s, priceInside: num(s.priceInside), priceOutside: num(s.priceOutside), priceUrgent: num(s.priceUrgent), priceEmergency: num(s.priceEmergency), hasProblems: _count.problems > 0 })),
     });
   }),
@@ -56,8 +61,19 @@ siteServicesRouter.get(
   '/slots',
   asyncHandler(async (req, res) => {
     const { date } = z.object({ date: dateField }).parse(req.query);
-    const day = await getDaySlots(date);
-    ok(res, { ...day, slots: day.slots.map((s) => (s.reason === 'booked' ? { time: s.time, available: true } : s)) });
+    ok(res, await getServiceDaySlots(date));
+  }),
+);
+
+/** رابط خريطة (Google Maps أو غيرها) ← إحداثيات */
+siteServicesRouter.get(
+  '/map-link',
+  formLimiter,
+  asyncHandler(async (req, res) => {
+    const { u } = z.object({ u: z.string().trim().min(5).max(2000) }).parse(req.query);
+    const point = await resolveMapLink(u);
+    if (!point) throw badRequest('لم نتعرف على الموقع من هذا الرابط. افتح الموقع في خرائط Google وانسخ رابط المشاركة، أو حدد الموقع من الخريطة.', { field: 'mapLink' });
+    ok(res, point);
   }),
 );
 
@@ -159,13 +175,18 @@ const createInput = quoteInput.extend({
   requestType: z.enum(['INSPECTION', 'INSPECTION_REPORT', 'DIAGNOSIS', 'REPAIR_QUOTE', 'REPAIR', 'PREVENTIVE', 'CONTRACT'], { errorMap: () => ({ message: 'اختر نوع الطلب' }) }),
   name: nameField,
   phone: phoneField,
+  phoneWhatsapp: z.boolean().default(true),
+  /** رقم ثانوي إجباري للتواصل */
+  phone2: phoneField,
+  phone2Whatsapp: z.boolean().default(false),
   clientType: z.enum(['INDIVIDUAL', 'COMPANY', 'FACTORY', 'WAREHOUSE', 'WORKSHOP'], { errorMap: () => ({ message: 'اختر نوع العميل' }) }),
   propertyType: requiredText('نوع العقار أو المنشأة', 80),
   ownership: optionalText(80),
   area: requiredText('المنطقة', 120),
   address: requiredText('العنوان بالتفصيل', 400),
-  lat: latField,
-  lng: lngField,
+  /** موقع العقار إجباري: GPS، رابط خريطة، أو تحديد يدوي على الخريطة */
+  lat: z.coerce.number({ required_error: 'حدد موقع العقار على الخريطة', invalid_type_error: 'حدد موقع العقار على الخريطة' }).min(-90).max(90),
+  lng: z.coerce.number({ required_error: 'حدد موقع العقار على الخريطة', invalid_type_error: 'حدد موقع العقار على الخريطة' }).min(-180).max(180),
   description: requiredText('وصف المشكلة', 3000),
   problemLocation: optionalText(300),
   notes: optionalText(1500),
@@ -227,9 +248,11 @@ siteServicesRouter.post(
     }
 
     // الموعد: ضمن أيام وساعات العمل المعروضة
-    const day = await getDaySlots(input.date);
+    const day = await getServiceDaySlots(input.date);
     const slot = day.slots.find((s) => s.time === input.time);
     if (!day.open || !slot || slot.reason === 'past') throw badRequest('اختر يومًا ووقتًا من الأوقات المعروضة', { field: 'time' });
+    if (slot.reason === 'booked') throw new HttpError(409, 'هذا الموعد اكتمل للتو. اختر موعدًا آخر.', 'SLOT_TAKEN', { field: 'time' });
+    if (input.phone2.replace(/\D/g, '').slice(-9) === input.phone.replace(/\D/g, '').slice(-9)) throw badRequest('الرقم الثانوي يجب أن يختلف عن الرقم الأساسي', { field: 'phone2' });
     const scheduledAt = ammanToUtc(input.date, input.time);
 
     const stored = [
@@ -247,6 +270,9 @@ siteServicesRouter.post(
           requestType: input.requestType,
           name: input.name,
           phone: input.phone,
+          phoneWhatsapp: input.phoneWhatsapp,
+          phone2: input.phone2,
+          phone2Whatsapp: input.phone2Whatsapp,
           clientType: input.clientType,
           propertyType: input.propertyType,
           ownership: input.ownership ?? null,

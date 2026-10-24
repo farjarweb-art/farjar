@@ -94,6 +94,7 @@ const ROUTE_PREFETCH: [RegExp, () => Promise<unknown>, boolean][] = [
   [/^\/store\/[^/]+$/, pages.ProductPage, true],
   [/^\/store\/?$/, pages.Store, true],
   [/^\/services\/[^/]+\/book/, pages.ServiceBook, false],
+  [/^\/book\/?$/, pages.ServiceBook, false],
   [/^\/services\/[^/]+$/, pages.ServiceDetail, true],
   [/^\/services\/?$/, pages.Services, true],
   [/^\/account\/services\//, pages.ServiceRequestDetail, false],
@@ -187,6 +188,7 @@ export default function App() {
           <Route element={<RequireCustomer />}>
             <Route path="bookings/:type" element={<BookingForm />} />
             <Route path="services/:slug/book" element={<ServiceBook />} />
+            <Route path="book" element={<ServiceBook />} />
             <Route path="account/services/:id" element={<ServiceRequestDetail />} />
             <Route path="corporate/:type" element={<CorporateForm />} />
             <Route path="cart" element={<Cart />} />

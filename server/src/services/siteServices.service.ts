@@ -1,6 +1,7 @@
-import type { ClientType, Prisma, ServiceRequestStatus, ServiceRequestType } from '@prisma/client';
+import type { ClientType, Prisma, ServiceRequestStatus, ServiceRequestType, Urgency } from '@prisma/client';
 import { badRequest } from '../lib/http';
 import { prisma } from '../lib/prisma';
+import { URGENCY_AR } from './servicePricing';
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
@@ -84,6 +85,9 @@ export async function advanceStatus(db: Db, req: { id: string; status: ServiceRe
 
 export const money = (n: number) => `${n.toFixed(3).replace(/\.?0+$/, '') || '0'} د.أ`;
 
+/** صفة العميل بالنسبة للعقار — أول خطوة في الحجز */
+export const OWNERSHIP_OPTIONS = ['مالك العقار', 'مستأجر', 'مشتري محتمل (فحص قبل الشراء أو الاستئجار)', 'وكيل أو مدير عقار', 'مقاول أو مهندس'];
+
 export function serviceRequestMessage(r: {
   number: number;
   ref: string;
@@ -103,16 +107,19 @@ export function serviceRequestMessage(r: {
   needsApproval: boolean;
   extra?: ExtraAnswer[];
   scopePriced?: boolean;
+  ownership?: string | null;
+  urgency?: Urgency;
 }) {
   const when = r.scheduledAt.toLocaleString('ar-JO', { timeZone: 'Asia/Amman', dateStyle: 'full', timeStyle: 'short' });
   return [
     `🛠️ طلب معاينة/صيانة جديد #${r.number} (${r.ref})`,
     `الخدمة: ${r.services.map((s) => s.name).join('، ')}`,
     `نوع الطلب: ${REQUEST_TYPE_AR[r.requestType]}`,
+    r.urgency && r.urgency !== 'NORMAL' ? `⚡ الأولوية: ${URGENCY_AR[r.urgency]}` : '',
     r.problems.length ? `المشكلة: ${r.problems.map((p) => p.name).join('، ')}` : '',
     r.devices.length ? `الأجهزة: ${r.devices.map((d) => d.name).join('، ')}` : '',
     ...(r.extra ?? []).map((x) => `${x.label}: ${x.value}`),
-    `العميل: ${r.name} — ${r.phone} (${CLIENT_TYPE_AR[r.clientType]} · ${r.propertyType})`,
+    `العميل: ${r.name} — ${r.phone} (${CLIENT_TYPE_AR[r.clientType]} · ${r.propertyType}${r.ownership ? ` · ${r.ownership}` : ''})`,
     `الموقع: ${r.zoneName} — ${r.area} — ${r.address}`,
     `الموعد المطلوب: ${when}`,
     `الإجمالي المعتمد: ${money(r.total)}${r.scopePriced ? ' + بنود تُسعَّر بعد مراجعة نطاق المشروع' : ''}`,

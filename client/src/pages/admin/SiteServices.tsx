@@ -21,6 +21,8 @@ type Service = {
   priceInside: number;
   priceOutside: number;
   travelFee: number;
+  priceUrgent: number | null;
+  priceEmergency: number | null;
   discountPercent: number;
   durationMinutes: number;
   visitFeePolicy: VisitFeePolicy;
@@ -33,10 +35,23 @@ type Service = {
   deliverables: string;
   formFields: FormField[];
   problems: { id: string; name: string; description: string; quoteRequired: boolean; isOther: boolean; active: boolean; deviceIds: string[] }[];
-  devices: { deviceId: string; included: boolean; fee: number | null }[];
+  devices: { deviceId: string; included: boolean; fee: number | null; autoInclude?: boolean }[];
 };
-type Device = { id: string; name: string; description: string; fee: number; sortOrder: number; active: boolean };
-type Zone = { id: string; name: string; tier: PriceTier; travelFee: number; requiresApproval: boolean; sortOrder: number; active: boolean };
+type Device = {
+  id: string;
+  name: string;
+  description: string;
+  fee: number;
+  sortOrder: number;
+  active: boolean;
+  code: string | null;
+  imageUrl: string | null;
+  mechanism: string;
+  benefits: string;
+  scopePriced: boolean;
+  parentId: string | null;
+};
+type Zone = { id: string; name: string; tier: PriceTier; travelFee: number; requiresApproval: boolean; regions: string[]; sortOrder: number; active: boolean };
 type Bundle = { id: string; name: string; priceInside: number; priceOutside: number; terms: string; active: boolean; services: { id: string; name: string }[] };
 type Catalog = { services: Service[]; devices: Device[]; zones: Zone[]; bundles: Bundle[] };
 
@@ -122,7 +137,7 @@ function Row({ title, sub, right, onClick, inactive }: { title: ReactNode; sub?:
 
 const blankService = (): Omit<Service, 'id' | 'slug' | 'problems' | 'devices'> => ({
   name: '', summary: '', includes: '', audiences: ['HOME'], requestTypes: ['INSPECTION', 'INSPECTION_REPORT', 'DIAGNOSIS', 'REPAIR_QUOTE'],
-  priceInside: 0, priceOutside: 0, travelFee: 0, discountPercent: 0, durationMinutes: 60, visitFeePolicy: 'SEPARATE', terms: '', featured: false, sortOrder: 0, active: true,
+  priceInside: 0, priceOutside: 0, travelFee: 0, priceUrgent: null, priceEmergency: null, discountPercent: 0, durationMinutes: 60, visitFeePolicy: 'SEPARATE', terms: '', featured: false, sortOrder: 0, active: true,
   optionsLabel: '', priceOnRequest: false, deliverables: '', formFields: [],
 });
 
@@ -150,6 +165,8 @@ function ServicesTab({ c, canEdit, reload }: TabProps) {
               <>
                 <span>داخل {formatJOD(s.priceInside)}</span>
                 <span className="text-muted">خارج {formatJOD(s.priceOutside)}</span>
+                {s.priceUrgent != null && <Tag tone="sand">عاجلة {formatJOD(s.priceUrgent)}</Tag>}
+                {s.priceEmergency != null && <Tag tone="danger">طارئة {formatJOD(s.priceEmergency)}</Tag>}
                 {s.discountPercent > 0 && <Tag tone="sand">خصم {s.discountPercent}%</Tag>}
               </>
             }
@@ -225,6 +242,8 @@ function ServiceModal({ service, catalog, canEdit, onClose, onSaved }: { service
           <Input label="سعر الزيارة داخل عمّان" type="number" min={0} step="any" className="ltr text-start" value={v.priceInside} onChange={(e) => setF('priceInside', Number(e.target.value))} error={fe('priceInside')} />
           <Input label="سعر الزيارة خارج عمّان" type="number" min={0} step="any" className="ltr text-start" value={v.priceOutside} onChange={(e) => setF('priceOutside', Number(e.target.value))} error={fe('priceOutside')} />
           <Input label="رسوم انتقال إضافية (خارج عمّان)" type="number" min={0} step="any" className="ltr text-start" value={v.travelFee} onChange={(e) => setF('travelFee', Number(e.target.value))} />
+          <Input label="زيارة عاجلة (سعر ثابت)" hint="فارغ = غير متاحة" type="number" min={0} step="any" className="ltr text-start" value={v.priceUrgent ?? ''} onChange={(e) => setF('priceUrgent', e.target.value === '' ? null : Number(e.target.value))} error={fe('priceUrgent')} />
+          <Input label="زيارة طارئة (سعر ثابت)" hint="فارغ = غير متاحة" type="number" min={0} step="any" className="ltr text-start" value={v.priceEmergency ?? ''} onChange={(e) => setF('priceEmergency', e.target.value === '' ? null : Number(e.target.value))} error={fe('priceEmergency')} />
           <Input label="خصم على الزيارة %" type="number" min={0} max={90} className="ltr text-start" value={v.discountPercent} onChange={(e) => setF('discountPercent', Number(e.target.value))} />
           <Input label="المدة التقديرية (دقيقة)" hint="للمواعيد فقط — لا تؤثر على السعر" type="number" min={15} className="ltr text-start" value={v.durationMinutes} onChange={(e) => setF('durationMinutes', Number(e.target.value))} />
           <Input label="الترتيب" type="number" min={0} className="ltr text-start" value={v.sortOrder} onChange={(e) => setF('sortOrder', Number(e.target.value))} />
@@ -268,17 +287,20 @@ function ServiceModal({ service, catalog, canEdit, onClose, onSaved }: { service
           <>
             <section className="rounded-xl border border-line p-4">
               <h3 className="text-base">الأجهزة والفحوصات المتاحة لهذه الخدمة</h3>
-              <p className="mt-1 text-xs text-muted">حدد الأجهزة التي تظهر للعميل، وما إذا كانت مشمولة بلا رسوم، أو برسوم خاصة بهذه الخدمة (فارغ = رسوم الجهاز العامة).</p>
+              <p className="mt-1 text-xs text-muted">حدد الأجهزة التي تظهر للعميل، وما إذا كانت مشمولة بلا رسوم، أو برسوم خاصة بهذه الخدمة (فارغ = رسوم الجهاز العامة). "تلقائي" = يُضاف مجانًا لكل حجز دون اختيار العميل. الملحقات (مثل خطافات المنظار) تُضاف وحدها مع جهازها الأب.</p>
               <ul className="mt-3 space-y-2">
                 {catalog.devices.map((d) => {
                   const l = links.find((x) => x.deviceId === d.id);
                   return (
-                    <li key={d.id} className="grid items-center gap-2 rounded-lg border border-line px-3 py-2 sm:grid-cols-[1fr_auto_8rem]">
-                      <Checkbox label={`${d.name} (${formatJOD(d.fee)})`} checked={!!l} onChange={(on) => setLinks(on ? [...links, { deviceId: d.id, included: false, fee: null }] : links.filter((x) => x.deviceId !== d.id))} />
+                    <li key={d.id} className="grid items-center gap-2 rounded-lg border border-line px-3 py-2 sm:grid-cols-[1fr_auto_auto_8rem]">
+                      <Checkbox label={`${d.name} (${d.scopePriced ? 'حسب المساحة' : formatJOD(d.fee)})`} checked={!!l} onChange={(on) => setLinks(on ? [...links, { deviceId: d.id, included: false, fee: null }] : links.filter((x) => x.deviceId !== d.id))} />
                       {l && (
                         <>
                           <label className="flex items-center gap-2 text-sm">
                             <Switch checked={l.included} onChange={(x) => setLinks(links.map((y) => (y.deviceId === d.id ? { ...y, included: x } : y)))} label="مشمول" /> مشمول
+                          </label>
+                          <label className="flex items-center gap-2 text-sm">
+                            <Switch checked={!!l.autoInclude} onChange={(x) => setLinks(links.map((y) => (y.deviceId === d.id ? { ...y, autoInclude: x, included: x || y.included } : y)))} label="تلقائي مجانًا" /> تلقائي 🎁
                           </label>
                           <Input label="رسوم خاصة" type="number" min={0} step="any" className="ltr text-start" disabled={l.included} value={l.fee ?? ''} onChange={(e) => setLinks(links.map((y) => (y.deviceId === d.id ? { ...y, fee: e.target.value === '' ? null : Number(e.target.value) } : y)))} />
                         </>
@@ -361,38 +383,125 @@ function ServiceModal({ service, catalog, canEdit, onClose, onSaved }: { service
 
 function DevicesTab({ c, canEdit, reload }: TabProps) {
   const [edit, setEdit] = useState<Device | 'new' | null>(null);
+  const parents = c.devices.filter((d) => !d.parentId);
+  const nameOf = (id: string | null) => c.devices.find((d) => d.id === id)?.name ?? '';
   return (
     <Panel title="الأجهزة والفحوصات الإضافية" actions={canEdit && <Button size="sm" onClick={() => setEdit('new')}><Icon name="plus" className="h-4 w-4" /> جهاز جديد</Button>} bodyClassName="p-0">
+      <p className="border-b border-line px-4 py-3 text-sm text-muted">لكل جهاز صورة وآلية عمل وفوائد تظهر للعميل عند الحجز. الصور الحالية رسوم توضيحية — ارفع صورة حقيقية للجهاز من نافذة التعديل لتظهر مكانها.</p>
       <ul className="divide-y divide-line">
         {c.devices.map((d) => (
-          <Row key={d.id} onClick={() => setEdit(d)} inactive={!d.active} title={<>{d.name} {!d.active && <Tag>موقوف</Tag>}</>} sub={d.description} right={<b>{formatJOD(d.fee)}</b>} />
+          <li key={d.id}>
+            <button type="button" onClick={() => setEdit(d)} className={cx('flex w-full items-center gap-3 px-4 py-3 text-start hover:bg-subtle/60', !d.active && 'opacity-55')}>
+              <span className="h-14 w-[4.7rem] shrink-0 overflow-hidden rounded-lg border border-line bg-subtle">
+                {d.imageUrl ? <img src={d.imageUrl} alt="" className="h-full w-full object-cover" loading="lazy" /> : <Icon name="image" className="m-auto mt-4 h-5 w-5 text-muted" />}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block font-semibold">
+                  {d.name} {!d.active && <Tag>موقوف</Tag>} {d.scopePriced && <Tag tone="dark">معدات ثقيلة</Tag>}
+                </span>
+                <span className="mt-0.5 block truncate text-sm text-muted">{d.parentId ? `ملحق مجاني مع: ${nameOf(d.parentId)}` : d.mechanism || d.description}</span>
+              </span>
+              <b className="shrink-0 text-sm">{d.scopePriced ? 'حسب المساحة' : d.fee === 0 ? 'مجاني' : formatJOD(d.fee)}</b>
+            </button>
+          </li>
         ))}
       </ul>
       {edit && (
         <SimpleModal
           title={edit === 'new' ? 'جهاز جديد' : edit.name}
           canEdit={canEdit}
-          initial={edit === 'new' ? { name: '', description: '', fee: 0, sortOrder: 0, active: true } : edit}
+          initial={
+            edit === 'new'
+              ? { name: '', description: '', fee: 0, sortOrder: 0, active: true, code: '', mechanism: '', benefits: '', scopePriced: false, parentId: '' }
+              : { ...edit, code: edit.code ?? '', parentId: edit.parentId ?? '' }
+          }
           path={edit === 'new' ? null : `/admin/site-services/devices/${edit.id}`}
           create="/admin/site-services/devices"
+          omit={['imageUrl', 'imagePublicId']}
+          transform={(b) => ({ ...b, code: b.code || null, parentId: b.parentId || null })}
           onClose={() => setEdit(null)}
           onSaved={reload}
           fields={(v, set, fe) => (
             <>
-              <Input label="اسم الجهاز" value={v.name} maxLength={160} onChange={(e) => set('name', e.target.value)} error={fe('name')} />
-              <Textarea label="وصف مختصر لفائدته" rows={2} value={v.description} maxLength={600} onChange={(e) => set('description', e.target.value)} />
+              {edit !== 'new' && <DeviceImage device={edit} canEdit={canEdit} onChanged={reload} />}
+              <Input label="اسم الجهاز / الفحص" value={v.name} maxLength={160} onChange={(e) => set('name', e.target.value)} error={fe('name')} />
+              <Textarea label="آلية العمل (تظهر للعميل)" rows={3} value={v.mechanism} maxLength={1500} onChange={(e) => set('mechanism', e.target.value)} error={fe('mechanism')} />
+              <Textarea label="الفوائد (سطر لكل فائدة)" rows={4} value={v.benefits} maxLength={2000} onChange={(e) => set('benefits', e.target.value)} error={fe('benefits')} />
+              <Textarea label="وصف مختصر (اختياري)" rows={2} value={v.description} maxLength={600} onChange={(e) => set('description', e.target.value)} />
               <div className="grid gap-3 sm:grid-cols-2">
-                <Input label="رسوم الإضافة للزيارة" type="number" min={0} step="any" className="ltr text-start" value={v.fee} onChange={(e) => set('fee', Number(e.target.value))} error={fe('fee')} />
+                <Input label="رسوم الإضافة للزيارة" hint="0 = مجاني" type="number" min={0} step="any" className="ltr text-start" disabled={v.scopePriced} value={v.fee} onChange={(e) => set('fee', Number(e.target.value))} error={fe('fee')} />
                 <Input label="الترتيب" type="number" min={0} className="ltr text-start" value={v.sortOrder} onChange={(e) => set('sortOrder', Number(e.target.value))} />
+                <Select label="ملحق مجاني مع جهاز (اختياري)" hint="يُضاف تلقائيًا عند اختيار الجهاز الأب" value={v.parentId} onChange={(e) => set('parentId', e.target.value)} error={fe('parentId')}>
+                  <option value="">— جهاز رئيسي —</option>
+                  {parents
+                    .filter((p) => edit === 'new' || p.id !== edit.id)
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                </Select>
+                <Input label="الرمز (اختياري)" hint="بالإنجليزية مثل thermal_inspection" className="ltr text-start" value={v.code} maxLength={60} onChange={(e) => set('code', e.target.value)} error={fe('code')} />
               </div>
-              <label className="flex items-center gap-2 text-sm">
-                <Switch checked={v.active} onChange={(x) => set('active', x)} label="فعال" /> فعال
-              </label>
+              <div className="flex flex-wrap gap-6">
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch checked={v.scopePriced} onChange={(x) => set('scopePriced', x)} label="معدات ثقيلة تُسعّر حسب المساحة" /> معدات ثقيلة (السعر حسب المساحة ونطاق العمل)
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch checked={v.active} onChange={(x) => set('active', x)} label="فعال" /> فعال
+                </label>
+              </div>
             </>
           )}
         />
       )}
     </Panel>
+  );
+}
+
+/** صورة الجهاز: رفع صورة حقيقية بدل الرسم التوضيحي */
+function DeviceImage({ device, canEdit, onChanged }: { device: Device; canEdit: boolean; onChanged: () => void }) {
+  const m = useMutation();
+  const [url, setUrl] = useState(device.imageUrl);
+  async function upload(file: File) {
+    const fd = new FormData();
+    fd.append('file', file);
+    await m.run(
+      'img',
+      async () => {
+        const r = await api.post<{ imageUrl: string }>(`/admin/site-services/devices/${device.id}/image`, fd);
+        setUrl(r.imageUrl);
+        onChanged();
+      },
+      'تم رفع الصورة',
+    );
+  }
+  async function remove() {
+    if (await m.run('rm', () => api.del(`/admin/site-services/devices/${device.id}/image`), 'تم حذف الصورة')) {
+      setUrl(null);
+      onChanged();
+    }
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-4 rounded-xl border border-line p-3">
+      <span className="aspect-[4/3] w-36 shrink-0 overflow-hidden rounded-lg bg-subtle">{url ? <img src={url} alt="" className="h-full w-full object-cover" /> : <Icon name="image" className="m-auto mt-9 h-7 w-7 text-muted" />}</span>
+      <div className="space-y-2 text-sm">
+        <p className="text-muted">صورة بدقة عالية (يفضل 1600×1200 بخلفية فاتحة). JPG أو PNG أو WebP حتى 5 ميغابايت.</p>
+        {canEdit && (
+          <div className="flex flex-wrap gap-2">
+            <label className={cx('inline-flex min-h-[40px] cursor-pointer items-center gap-2 rounded-lg border border-line-strong px-3 font-semibold hover:border-ink/50', m.pending === 'img' && 'pointer-events-none opacity-60')}>
+              <Icon name="upload" className="h-4 w-4" /> {m.pending === 'img' ? 'جارٍ الرفع…' : url ? 'استبدال الصورة' : 'رفع صورة'}
+              <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(e) => e.target.files?.[0] && void upload(e.target.files[0])} />
+            </label>
+            {url && (
+              <Button size="sm" variant="ghost" loading={m.pending === 'rm'} onClick={remove}>
+                حذف الصورة
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -409,7 +518,7 @@ function ZonesTab({ c, canEdit, reload }: TabProps) {
             onClick={() => setEdit(z)}
             inactive={!z.active}
             title={<>{z.name} {!z.active && <Tag>موقوفة</Tag>}</>}
-            sub={TIER_LABEL[z.tier]}
+            sub={`${TIER_LABEL[z.tier]}${z.regions.length ? ` · ${z.regions.length} منطقة` : ''}`}
             right={
               <>
                 {z.travelFee > 0 ? <span>انتقال {formatJOD(z.travelFee)}</span> : <span className="text-muted">بدون رسوم انتقال</span>}
@@ -423,8 +532,10 @@ function ZonesTab({ c, canEdit, reload }: TabProps) {
         <SimpleModal
           title={edit === 'new' ? 'منطقة جديدة' : edit.name}
           canEdit={canEdit}
-          initial={edit === 'new' ? { name: '', tier: 'OUTSIDE_AMMAN' as PriceTier, travelFee: 0, requiresApproval: false, sortOrder: 0, active: true } : edit}
+          initial={edit === 'new' ? { name: '', tier: 'OUTSIDE_AMMAN' as PriceTier, travelFee: 0, requiresApproval: false, sortOrder: 0, active: true, regionsText: '' } : { ...edit, regionsText: edit.regions.join('\n') }}
           path={edit === 'new' ? null : `/admin/site-services/zones/${edit.id}`}
+          omit={['regionsText']}
+          transform={(b) => ({ ...b, regions: String(b.regionsText ?? '').split('\n').map((x) => x.trim()).filter(Boolean) })}
           create="/admin/site-services/zones"
           onClose={() => setEdit(null)}
           onSaved={reload}
@@ -442,6 +553,7 @@ function ZonesTab({ c, canEdit, reload }: TabProps) {
               <label className="flex items-center gap-2 text-sm">
                 <Switch checked={v.requiresApproval} onChange={(x) => set('requiresApproval', x)} label="تحتاج موافقة مسبقة" /> تحتاج موافقة مسبقة قبل التأكيد
               </label>
+              <Textarea label="المناطق داخل المحافظة (سطر لكل منطقة)" hint="يختار منها العميل عند الحجز، مع خيار كتابة منطقة أخرى" rows={6} value={v.regionsText} onChange={(e) => set('regionsText', e.target.value)} error={fe('regions')} />
               <label className="flex items-center gap-2 text-sm">
                 <Switch checked={v.active} onChange={(x) => set('active', x)} label="فعالة" /> فعالة
               </label>
@@ -523,6 +635,7 @@ function SimpleModal<T extends { id?: string } & Record<string, unknown>>({
   create,
   canEdit,
   omit = [],
+  transform,
   onClose,
   onSaved,
   fields,
@@ -533,6 +646,8 @@ function SimpleModal<T extends { id?: string } & Record<string, unknown>>({
   create: string;
   canEdit: boolean;
   omit?: string[];
+  /** تعديل البيانات قبل الإرسال (يُطبّق قبل حذف الحقول المستبعدة) */
+  transform?: (body: Record<string, unknown>) => Record<string, unknown>;
   onClose: () => void;
   onSaved: () => void;
   fields: (v: T, set: <K extends keyof T>(k: K, val: T[K]) => void, fe: (k: string) => string | undefined) => ReactNode;
@@ -542,7 +657,7 @@ function SimpleModal<T extends { id?: string } & Record<string, unknown>>({
   const [confirm, setConfirm] = useState(false);
   const set = <K extends keyof T>(k: K, val: T[K]) => setV((x) => ({ ...x, [k]: val }));
   async function save() {
-    const body: Record<string, unknown> = { ...v };
+    const body: Record<string, unknown> = transform ? transform({ ...v }) : { ...v };
     for (const k of ['id', 'createdAt', 'updatedAt', ...omit]) delete body[k];
     if (await m.run('save', () => (path ? api.patch(path, body) : api.post(create, body)), 'تم الحفظ')) {
       onSaved();
@@ -596,6 +711,8 @@ const FIELD_LABEL: Record<string, string> = {
   discountPercent: 'الخصم %',
   fee: 'الرسوم',
   included: 'مشمول',
+  priceUrgent: 'زيارة عاجلة',
+  priceEmergency: 'زيارة طارئة',
 };
 const TARGET_LABEL: Record<string, string> = { service: 'خدمة', device: 'جهاز', service_device: 'جهاز خدمة', zone: 'منطقة', bundle: 'زيارة مجمعة' };
 

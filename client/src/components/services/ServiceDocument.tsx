@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { useSite } from '../../context/SiteContext';
 import { BRAND } from '../../lib/brand';
 import { displayPhone, formatDate, formatJOD } from '../../lib/format';
-import { CLIENT_TYPE_LABEL, TIER_LABEL, type RequestCore, type ServiceQuote } from '../../lib/siteServices';
+import { CLIENT_TYPE_LABEL, TIER_LABEL, URGENCY_LABEL, mapsLink, type RequestCore, type ServiceQuote } from '../../lib/siteServices';
 import { LogoMark } from '../layout/Logo';
 import { Button, Icon } from '../ui';
 
@@ -48,6 +48,8 @@ export function ServiceDocument({ request: r, kind, quote, back }: { request: Re
             ['العميل', r.name],
             ['الهاتف', <span className="ltr">{displayPhone(r.phone)}</span>],
             ['نوع العميل', `${CLIENT_TYPE_LABEL[r.clientType]} — ${r.propertyType}`],
+            ['صفة العميل', r.ownership],
+            ['الأولوية', r.urgency && r.urgency !== 'NORMAL' ? URGENCY_LABEL[r.urgency] : null],
             ['المنطقة', `${r.zoneName} (${TIER_LABEL[r.tier]}) — ${r.area}`],
             ['العنوان', r.address],
             ['موعد الزيارة', formatDate(r.scheduledAt, true)],
@@ -76,6 +78,18 @@ export function ServiceDocument({ request: r, kind, quote, back }: { request: Re
 
       {kind === 'report' && report && (
         <>
+          {report.gpsLat != null && report.gpsLng != null && (
+            <Section title="إحداثيات موقع الفحص (GPS)">
+              <Grid
+                rows={[
+                  ['خط العرض / خط الطول', <span className="ltr font-semibold">{report.gpsLat.toFixed(6)}, {report.gpsLng.toFixed(6)}</span>],
+                  ['الدقة', report.gpsAccuracy != null ? `± ${report.gpsAccuracy} متر` : null],
+                  ['وقت التسجيل', report.gpsAt ? formatDate(report.gpsAt, true) : null],
+                  ['الخريطة', <a href={mapsLink(report.gpsLat, report.gpsLng)} className="ltr break-all underline">{mapsLink(report.gpsLat, report.gpsLng)}</a>],
+                ]}
+              />
+            </Section>
+          )}
           <TextSection title="الملاحظات والنتائج الفنية" text={report.findings} />
           <TextSection title="التوصيات المقترحة" text={report.recommendations} />
           <TextSection title="الأعمال التي تحتاج إلى إصلاح" text={report.repairsNeeded} />

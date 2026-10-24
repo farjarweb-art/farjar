@@ -1,4 +1,4 @@
-import type { PriceTier, VisitFeePolicy } from '@prisma/client';
+import type { PriceTier, Urgency, VisitFeePolicy } from '@prisma/client';
 import { badRequest } from '../lib/http';
 import { prisma } from '../lib/prisma';
 
@@ -15,12 +15,19 @@ import { prisma } from '../lib/prisma';
 export type PriceLine = { kind: 'visit' | 'bundle' | 'discount' | 'device' | 'travel' | 'quote'; label: string; amount: number };
 
 export const SCOPE_PRICED = 'يحدد بعد مراجعة نطاق المشروع';
+/** المعدات الثقيلة (تسليك تجاري، غسيل تدفئة) */
+export const AREA_PRICED = 'يحدد حسب المساحة ونطاق العمل';
+export const FREE_ADDON = 'إضافة مجانية 🎁';
+
+export const URGENCY_AR: Record<Urgency, string> = { NORMAL: 'زيارة عادية', URGENT: 'زيارة عاجلة', EMERGENCY: 'زيارة طارئة' };
 
 export type PricingInput = {
   serviceIds: string[];
   zoneId: string;
   problemIds?: string[];
   deviceIds?: string[];
+  /** أولوية الزيارة — تنطبق على الخدمة الرئيسية إن كان لها سعر عاجل/طارئ */
+  urgency?: Urgency;
 };
 
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -30,16 +37,28 @@ export const TIER_AR: Record<PriceTier, string> = { INSIDE_AMMAN: 'داخل عم
 
 const serviceInclude = {
   problems: { where: { active: true }, include: { devices: { select: { id: true } } } },
-  devices: { include: { device: true } },
+  devices: { include: { device: { include: { accessories: { where: { active: true } } } } } },
   bundles: { where: { active: true }, include: { services: { select: { id: true } } } },
 } as const;
 
-/** الأجهزة المتاحة للخدمة حسب المشكلات المختارة (المدير يحدد ربط الأجهزة بالمشكلات) */
+/** سعر الزيارة العاجلة/الطارئة للخدمة (null = غير متاح) */
+export function urgencyPrice(s: { priceUrgent: unknown; priceEmergency: unknown }, urgency: Urgency) {
+  const v = urgency === 'URGENT' ? s.priceUrgent : urgency === 'EMERGENCY' ? s.priceEmergency : null;
+  return v == null ? null : Number(String(v));
+}
+
+/**
+ * الأجهزة التي يختارها العميل للخدمة حسب المشكلات المختارة (المدير يحدد ربط الأجهزة بالمشكلات).
+ * الملحقات (لها جهاز أب) والإضافات التلقائية لا تُختار — تُضاف وحدها مجانًا.
+ */
 export function allowedDeviceIds(
-  service: { problems: { id: string; isOther: boolean; devices: { id: string }[] }[]; devices: { deviceId: string; device: { active: boolean } }[] },
+  service: {
+    problems: { id: string; isOther: boolean; devices: { id: string }[] }[];
+    devices: { deviceId: string; autoInclude?: boolean; device: { active: boolean; parentId?: string | null } }[];
+  },
   problemIds: string[],
 ) {
-  const linked = service.devices.filter((l) => l.device.active).map((l) => l.deviceId);
+  const linked = service.devices.filter((l) => l.device.active && !l.device.parentId && !l.autoInclude).map((l) => l.deviceId);
   if (!service.problems.length) return new Set(linked);
   const chosen = service.problems.filter((p) => problemIds.includes(p.id));
   if (chosen.some((p) => p.isOther)) return new Set(linked);
@@ -75,6 +94,11 @@ export async function priceVisit(input: PricingInput) {
   const bad = deviceIds.find((id) => !allowed.has(id));
   if (bad) throw badRequest('أحد الأجهزة المختارة لا يناسب المشكلات المحددة');
 
+  const requested: Urgency = input.urgency ?? 'NORMAL';
+  const urgentPrice = urgencyPrice(main, requested);
+  const urgency: Urgency = urgentPrice == null || main.priceOnRequest ? 'NORMAL' : requested;
+  if (requested !== 'NORMAL' && urgency === 'NORMAL') throw badRequest(`${URGENCY_AR[requested]} غير متاحة لهذه الخدمة`, { field: 'urgency' });
+
   const lines: PriceLine[] = [];
   const visitPrice = (s: (typeof services)[number]) => num(inside ? s.priceInside : s.priceOutside);
 
@@ -83,9 +107,10 @@ export async function priceVisit(input: PricingInput) {
   if (services.length > 1) {
     const candidates = new Map<string, { name: string; price: number; covers: string[] }>();
     for (const s of services) {
+      if (urgency !== 'NORMAL' && s.id === main.id) continue; // الزيارة العاجلة بسعرها الثابت
       for (const b of s.bundles) {
         if (candidates.has(b.id)) continue;
-        const covers = serviceIds.filter((id) => b.services.some((x) => x.id === id));
+        const covers = serviceIds.filter((id) => b.services.some((x) => x.id === id) && !(urgency !== 'NORMAL' && id === main.id));
         if (covers.length >= 2) candidates.set(b.id, { name: b.name, price: num(inside ? b.priceInside : b.priceOutside), covers });
       }
     }
@@ -104,17 +129,37 @@ export async function priceVisit(input: PricingInput) {
       lines.push({ kind: 'quote', label: `زيارة: ${s.name} — ${SCOPE_PRICED}`, amount: 0 });
       continue;
     }
+    if (s.id === main.id && urgency !== 'NORMAL') {
+      lines.push({ kind: 'visit', label: `${URGENCY_AR[urgency]}: ${s.name}`, amount: r3(urgentPrice!) });
+      continue;
+    }
     const price = visitPrice(s);
     lines.push({ kind: 'visit', label: `زيارة: ${s.name} (${TIER_AR[tier]})`, amount: r3(price) });
     if (s.discountPercent > 0) lines.push({ kind: 'discount', label: `خصم ${s.discountPercent}% على ${s.name}`, amount: -r3((price * s.discountPercent) / 100) });
   }
 
-  const devices = deviceIds.map((id) => {
+  type ChosenDevice = { id: string; name: string; fee: number; included: boolean; auto?: boolean; scopePriced?: boolean };
+  const devices: ChosenDevice[] = [];
+  const addFree = (d: { id: string; name: string }) => {
+    if (devices.some((x) => x.id === d.id)) return;
+    lines.push({ kind: 'device', label: d.name.includes('🎁') ? d.name : `${d.name} — ${FREE_ADDON}`, amount: 0 });
+    devices.push({ id: d.id, name: d.name, fee: 0, included: true, auto: true });
+  };
+  for (const id of deviceIds) {
     const link = main.devices.find((l) => l.deviceId === id)!;
-    const fee = link.included ? 0 : num(link.fee ?? link.device.fee);
-    lines.push({ kind: 'device', label: link.included ? `${link.device.name} (مشمول في الزيارة)` : link.device.name, amount: r3(fee) });
-    return { id, name: link.device.name, fee: r3(fee), included: link.included };
-  });
+    const d = link.device;
+    if (d.scopePriced) {
+      lines.push({ kind: 'quote', label: `${d.name} — ${AREA_PRICED}`, amount: 0 });
+      devices.push({ id, name: d.name, fee: 0, included: false, scopePriced: true });
+    } else {
+      const fee = link.included ? 0 : num(link.fee ?? d.fee);
+      lines.push({ kind: 'device', label: link.included ? `${d.name} (مشمول في الزيارة)` : d.name, amount: r3(fee) });
+      devices.push({ id, name: d.name, fee: r3(fee), included: link.included });
+    }
+    for (const acc of d.accessories) addFree(acc);
+  }
+  // إضافات مجانية مع كل حجز لهذه الخدمة (مثل أداة قياس عرض التشققات)
+  for (const l of main.devices.filter((x) => x.autoInclude && x.device.active)) addFree(l.device);
 
   // خيارات تُسعَّر بعرض سعر مستقل بعد الزيارة (دراسة متكاملة، تصميم وتصنيع…)
   for (const p of problems.filter((x) => x.quoteRequired)) lines.push({ kind: 'quote', label: `${p.name} — ${SCOPE_PRICED} (عرض سعر مستقل)`, amount: 0 });
@@ -130,6 +175,7 @@ export async function priceVisit(input: PricingInput) {
   return {
     tier,
     zone: { id: zone.id, name: zone.name, requiresApproval: zone.requiresApproval },
+    urgency,
     services: services.map((s) => ({ id: s.id, name: s.name, slug: s.slug, durationMinutes: s.durationMinutes })),
     problems: problems.map((p) => ({ id: p.id, name: p.name, quoteRequired: p.quoteRequired })),
     /** فيه بنود تُسعَّر لاحقًا بعرض سعر مستقل */

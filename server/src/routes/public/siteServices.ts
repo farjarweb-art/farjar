@@ -13,7 +13,7 @@ import { memoryUpload, uploadGuard } from '../../middleware/upload';
 import { accountCustomer } from '../../services/customer.service';
 import { getDaySlots } from '../../services/schedule.service';
 import { priceVisit } from '../../services/servicePricing';
-import { CLIENT_TYPE_AR, REQUEST_TYPE_AR, logEvent, parseFormFields, resolveExtra, serviceRequestMessage } from '../../services/siteServices.service';
+import { CLIENT_TYPE_AR, OWNERSHIP_OPTIONS, REQUEST_TYPE_AR, logEvent, parseFormFields, resolveExtra, serviceRequestMessage } from '../../services/siteServices.service';
 import { POLICIES, validateAndStore, validateFile } from '../../services/upload.service';
 import { notifyAdmin } from '../../services/whatsapp.service';
 import { dateField, latField, lngField, nameField, optionalText, phoneField, requiredText, timeField } from '../../validators/common';
@@ -43,10 +43,10 @@ siteServicesRouter.get(
     const services = await prisma.siteService.findMany({
       where: { active: true, deletedAt: null },
       orderBy: [{ featured: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
-      select: { id: true, name: true, slug: true, summary: true, audiences: true, priceInside: true, priceOutside: true, discountPercent: true, featured: true, priceOnRequest: true, _count: { select: { problems: true } } },
+      select: { id: true, name: true, slug: true, summary: true, audiences: true, priceInside: true, priceOutside: true, priceUrgent: true, priceEmergency: true, discountPercent: true, featured: true, priceOnRequest: true, _count: { select: { problems: true } } },
     });
     ok(res, {
-      services: services.map(({ _count, ...s }) => ({ ...s, priceInside: num(s.priceInside), priceOutside: num(s.priceOutside), hasProblems: _count.problems > 0 })),
+      services: services.map(({ _count, ...s }) => ({ ...s, priceInside: num(s.priceInside), priceOutside: num(s.priceOutside), priceUrgent: num(s.priceUrgent), priceEmergency: num(s.priceEmergency), hasProblems: _count.problems > 0 })),
     });
   }),
 );
@@ -67,6 +67,7 @@ const quoteInput = z.object({
   zoneId: z.string({ required_error: 'اختر المنطقة' }).max(40),
   problemIds: z.array(z.string().max(40)).max(20).optional(),
   deviceIds: z.array(z.string().max(40)).max(20).optional(),
+  urgency: z.enum(['NORMAL', 'URGENT', 'EMERGENCY']).optional(),
 });
 
 siteServicesRouter.post(
@@ -84,12 +85,12 @@ siteServicesRouter.get(
       where: { slug: req.params.slug, active: true, deletedAt: null },
       include: {
         problems: { where: { active: true }, orderBy: { sortOrder: 'asc' }, include: { devices: { select: { id: true } } } },
-        devices: { where: { device: { active: true } }, include: { device: true }, orderBy: { device: { sortOrder: 'asc' } } },
+        devices: { where: { device: { active: true } }, include: { device: { include: { accessories: { where: { active: true }, select: { id: true } } } } }, orderBy: { device: { sortOrder: 'asc' } } },
         bundles: { where: { active: true }, include: { services: { where: { active: true, deletedAt: null }, select: { id: true, name: true, slug: true, priceInside: true, priceOutside: true } } } },
       },
     });
     if (!s) throw notFound('الخدمة غير موجودة');
-    const zones = await prisma.serviceZone.findMany({ where: { active: true }, orderBy: { sortOrder: 'asc' }, select: { id: true, name: true, tier: true, travelFee: true, requiresApproval: true } });
+    const zones = await prisma.serviceZone.findMany({ where: { active: true }, orderBy: { sortOrder: 'asc' }, select: { id: true, name: true, tier: true, travelFee: true, requiresApproval: true, regions: true } });
     const combinable = new Map<string, { id: string; name: string; slug: string; priceInside: number | null; priceOutside: number | null }>();
     for (const b of s.bundles) for (const x of b.services) if (x.id !== s.id) combinable.set(x.id, { ...x, priceInside: num(x.priceInside), priceOutside: num(x.priceOutside) });
     ok(res, {
@@ -104,6 +105,8 @@ siteServicesRouter.get(
         priceInside: num(s.priceInside),
         priceOutside: num(s.priceOutside),
         travelFee: num(s.travelFee),
+        priceUrgent: num(s.priceUrgent),
+        priceEmergency: num(s.priceEmergency),
         discountPercent: s.discountPercent,
         durationMinutes: s.durationMinutes,
         visitFeePolicy: s.visitFeePolicy,
@@ -122,12 +125,26 @@ siteServicesRouter.get(
           quoteRequired: p.quoteRequired,
           deviceIds: p.devices.map((d) => d.id),
         })),
-        devices: s.devices.map((l) => ({ id: l.deviceId, name: l.device.name, description: l.device.description, fee: l.included ? 0 : Number(l.fee ?? l.device.fee), included: l.included })),
+        devices: s.devices.map((l) => ({
+          id: l.deviceId,
+          name: l.device.name,
+          description: l.device.description,
+          fee: l.included || l.device.scopePriced ? 0 : Number(l.fee ?? l.device.fee),
+          included: l.included,
+          imageUrl: l.device.imageUrl,
+          mechanism: l.device.mechanism,
+          benefits: l.device.benefits.split('\n').map((x) => x.trim()).filter(Boolean),
+          scopePriced: l.device.scopePriced,
+          parentId: l.device.parentId,
+          autoInclude: l.autoInclude,
+          accessoryIds: l.device.accessories.map((a) => a.id),
+        })),
         bundles: s.bundles.map((b) => ({ id: b.id, name: b.name, priceInside: num(b.priceInside), priceOutside: num(b.priceOutside), terms: b.terms })),
       },
       combinable: [...combinable.values()],
       zones: zones.map((z) => ({ ...z, travelFee: num(z.travelFee) })),
       clientTypes: Object.entries(CLIENT_TYPE_AR).map(([value, label]) => ({ value, label })),
+      ownershipOptions: OWNERSHIP_OPTIONS,
       generalTerms: GENERAL_TERMS,
     });
   }),
@@ -144,6 +161,7 @@ const createInput = quoteInput.extend({
   phone: phoneField,
   clientType: z.enum(['INDIVIDUAL', 'COMPANY', 'FACTORY', 'WAREHOUSE', 'WORKSHOP'], { errorMap: () => ({ message: 'اختر نوع العميل' }) }),
   propertyType: requiredText('نوع العقار أو المنشأة', 80),
+  ownership: optionalText(80),
   area: requiredText('المنطقة', 120),
   address: requiredText('العنوان بالتفصيل', 400),
   lat: latField,
@@ -231,6 +249,8 @@ siteServicesRouter.post(
           phone: input.phone,
           clientType: input.clientType,
           propertyType: input.propertyType,
+          ownership: input.ownership ?? null,
+          urgency: price.urgency,
           zoneId: price.zone.id,
           zoneName: price.zone.name,
           tier: price.tier,
@@ -263,7 +283,7 @@ siteServicesRouter.post(
       return r;
     });
 
-    const text = serviceRequestMessage({ ...created, total: price.total, services: price.services, problems: price.problems, devices: price.devices, extra, scopePriced: price.hasScopePricing });
+    const text = serviceRequestMessage({ ...created, total: price.total, services: price.services, problems: price.problems, devices: price.devices, extra, scopePriced: price.hasScopePricing, urgency: price.urgency });
     const wa = await notifyAdmin(text, { entityType: 'service_request', entityId: created.id });
     emitAdmin({ type: 'service_request.created', id: created.id, title: `طلب معاينة #${created.number} — ${price.services[0].name}` });
     await audit({ actorType: 'customer', actorId: req.auth!.sub, action: 'create', entity: 'service_request', entityId: created.id });

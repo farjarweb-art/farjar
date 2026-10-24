@@ -2,6 +2,7 @@
  * كتالوج الخدمات والمعاينات الأولي (يُنشأ مرة واحدة فقط عندما يكون فارغًا — بعدها كل شيء من لوحة التحكم).
  * الأسعار مبدئية يعدّلها المدير.
  */
+import { seedInspectionV2 } from './seedInspection';
 import { Prisma, type PrismaClient, type ServiceAudience, type ServiceRequestType } from '@prisma/client';
 
 const D = (n: number) => new Prisma.Decimal(n);
@@ -110,6 +111,7 @@ export async function seedServices(prisma: PrismaClient) {
   }
   if ((await prisma.siteService.count()) === 0) await seedCatalog(prisma);
   await seedSignage(prisma);
+  await seedInspectionV2(prisma);
 }
 
 async function seedCatalog(prisma: PrismaClient) {

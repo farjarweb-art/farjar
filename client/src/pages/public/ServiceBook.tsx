@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { AccountNote, useAccountPrefill } from '../../components/forms/AccountPrefill';
 import { FilePicker } from '../../components/forms/FilePicker';
 import { ReviewSection, StepActions, StepHeading, SubmissionSuccess } from '../../components/forms/FormBits';
 import { LocationPicker } from '../../components/forms/LocationPicker';
 import { SlotPicker, longDate } from '../../components/forms/SlotPicker';
 import { MB, focusFirstError } from '../../components/forms/formUtils';
+import { DeviceCard } from '../../components/services/DeviceCard';
 import { PriceSummary } from '../../components/services/PriceSummary';
 import { Alert, Breadcrumbs, Checkbox, ChoiceGroup, ErrorState, Icon, Input, Select, Skeleton, Stepper, Textarea } from '../../components/ui';
 import { ApiError, api, toFormData } from '../../lib/api';
@@ -16,12 +17,16 @@ import {
   SCOPE_PRICED,
   REQUEST_TYPE_LABEL,
   TIER_LABEL,
+  URGENCY_HINT,
+  URGENCY_LABEL,
   allowedDevices,
+  cleanDeviceName,
   type ClientType,
   type FormField,
   type RequestCreated,
   type RequestType,
   type ServiceDetail,
+  type Urgency,
   type VisitQuote,
   normalizeDetail,
 } from '../../lib/siteServices';
@@ -31,6 +36,8 @@ import { prepareWhatsAppWindow } from '../../lib/whatsapp';
 const STEPS = ['الخدمة والمشكلة', 'الموقع', 'التفاصيل والموعد', 'السعر والتأكيد'];
 
 type Vals = {
+  ownership: string;
+  urgency: Urgency;
   requestType: RequestType | '';
   problemIds: string[];
   deviceIds: string[];
@@ -53,13 +60,13 @@ type Vals = {
 };
 
 const EMPTY: Vals = {
-  requestType: '', problemIds: [], deviceIds: [], extraIds: [], name: '', phone: '', clientType: '', propertyType: '', zoneId: '',
+  ownership: '', urgency: 'NORMAL', requestType: '', problemIds: [], deviceIds: [], extraIds: [], name: '', phone: '', clientType: '', propertyType: '', zoneId: '',
   area: '', address: '', lat: null, lng: null, description: '', problemLocation: '', notes: '', date: '', time: '', accept: false,
 };
 
 /** مفاتيح حقول كل خطوة (للتنقل لأول خطأ) */
 const STEP_KEYS = [
-  ['requestType', 'problemIds', 'deviceIds'],
+  ['ownership', 'urgency', 'requestType', 'problemIds', 'deviceIds'],
   ['name', 'phone', 'clientType', 'propertyType', 'zoneId', 'area', 'address', 'lat'],
   ['description', 'problemLocation', 'photos', 'video', 'time', 'notes'],
   ['accept'],
@@ -75,12 +82,19 @@ const MAX_VIDEO_MB = 40;
 /** حجز زيارة معاينة/صيانة: الخدمة والمشكلة والأجهزة ← الموقع ← التفاصيل والموعد ← السعر والتأكيد */
 export default function ServiceBook() {
   const { slug = '' } = useParams();
+  const [params] = useSearchParams();
   const detail = useAsync(() => api.get<ServiceDetail>(`/site-services/${encodeURIComponent(slug)}`).then(normalizeDetail), [slug], `service:${slug}`);
   const d = detail.data;
   const s = d?.service;
   useDocumentTitle(s ? `حجز: ${s.name}` : 'حجز زيارة');
 
-  const [v, setV] = useState<Vals>(EMPTY);
+  // صفة العميل والأولوية قد تأتي من بداية الحجز في صفحة الخدمات
+  const [v, setV] = useState<Vals>(() => ({
+    ...EMPTY,
+    ownership: params.get('ownership') ?? '',
+    urgency: (['URGENT', 'EMERGENCY'] as const).find((u) => u === params.get('urgency')) ?? 'NORMAL',
+  }));
+  const [areaOther, setAreaOther] = useState(false);
   const [photos, setPhotos] = useState<File[]>([]);
   const [video, setVideo] = useState<File | null>(null);
   const [documents, setDocuments] = useState<File[]>([]);
@@ -104,6 +118,21 @@ export default function ServiceBook() {
   }, [s, v.requestType]);
 
   const devices = useMemo(() => (s ? allowedDevices(s, v.problemIds) : []), [s, v.problemIds]);
+  // تُضاف مجانًا: إضافات الخدمة التلقائية + ملحقات الأجهزة المختارة
+  const freeAdds = useMemo(() => {
+    if (!s) return [];
+    const chosen = s.devices.filter((x) => v.deviceIds.includes(x.id));
+    const accIds = new Set(chosen.flatMap((x) => x.accessoryIds));
+    return s.devices.filter((x) => x.autoInclude || (x.parentId && accIds.has(x.id)));
+  }, [s, v.deviceIds]);
+  const urgencies = useMemo(
+    () => (s ? ([['NORMAL', s.priceInside], ['URGENT', s.priceUrgent], ['EMERGENCY', s.priceEmergency]] as [Urgency, number | null][]).filter(([u, p]) => u === 'NORMAL' || p != null) : []),
+    [s],
+  );
+  // خدمة بلا أسعار عاجلة: الأولوية عادية
+  useEffect(() => {
+    if (s && !urgencies.some(([u]) => u === v.urgency)) setV((x) => ({ ...x, urgency: 'NORMAL' }));
+  }, [s, urgencies, v.urgency]);
   // الأجهزة التي لم تعد مناسبة للمشكلات المختارة تُزال
   useEffect(() => {
     const ok = new Set(devices.map((x) => x.id));
@@ -113,7 +142,7 @@ export default function ServiceBook() {
   const zone = d?.zones.find((z) => z.id === v.zoneId);
   const serviceIds = useMemo(() => (s ? [s.id, ...v.extraIds] : []), [s, v.extraIds]);
   const needsProblems = !!s?.problems.length;
-  const quoteKey = JSON.stringify([serviceIds, v.zoneId, v.problemIds, v.deviceIds]);
+  const quoteKey = JSON.stringify([serviceIds, v.zoneId, v.problemIds, v.deviceIds, v.urgency]);
 
   // السعر الحي من السيرفر (نفس الحساب الذي يُعتمد عند التأكيد)
   useEffect(() => {
@@ -126,7 +155,7 @@ export default function ServiceBook() {
     setQuoting(true);
     const t = window.setTimeout(() => {
       api
-        .post<VisitQuote>('/site-services/quote', { serviceIds, zoneId: v.zoneId, problemIds: v.problemIds, deviceIds: v.deviceIds })
+        .post<VisitQuote>('/site-services/quote', { serviceIds, zoneId: v.zoneId, problemIds: v.problemIds, deviceIds: v.deviceIds, urgency: v.urgency })
         .then((q) => {
           if (!live) return;
           setQuote(q);
@@ -168,6 +197,7 @@ export default function ServiceBook() {
   function validate(i: number): Record<string, string> {
     const e: Record<string, string> = {};
     if (i === 0) {
+      if (d!.ownershipOptions.length && !v.ownership.trim()) e.ownership = 'اختر صفتك بالنسبة للعقار';
       if (!v.requestType) e.requestType = 'اختر نوع الطلب';
       if (needsProblems && !v.problemIds.length) e.problemIds = s!.optionsLabel ? 'اختر خيارًا واحدًا على الأقل' : 'اختر المشكلة التي تواجهها (يمكنك اختيار أكثر من مشكلة)';
     }
@@ -236,6 +266,8 @@ export default function ServiceBook() {
         zoneId: v.zoneId,
         problemIds: v.problemIds,
         deviceIds: v.deviceIds,
+        urgency: v.urgency,
+        ownership: v.ownership.trim() || undefined,
         requestType: v.requestType,
         name: v.name.trim(),
         phone: v.phone.trim(),
@@ -267,7 +299,7 @@ export default function ServiceBook() {
         setPriceChanged(true);
         set('accept', false);
         setQuote(null);
-        api.post<VisitQuote>('/site-services/quote', { serviceIds, zoneId: v.zoneId, problemIds: v.problemIds, deviceIds: v.deviceIds }).then(setQuote).catch(() => undefined);
+        api.post<VisitQuote>('/site-services/quote', { serviceIds, zoneId: v.zoneId, problemIds: v.problemIds, deviceIds: v.deviceIds, urgency: v.urgency }).then(setQuote).catch(() => undefined);
       } else {
         const key = err.field ? err.field.replace(/^details\./, '') : null;
         if (key) {
@@ -326,6 +358,51 @@ export default function ServiceBook() {
                 {step === 0 && (
                   <div className="space-y-7">
                     <StepHeading stepKey={step} title="ماذا تحتاج؟" />
+                    {d.ownershipOptions.length > 0 && (
+                      <div data-field="ownership">
+                        <span className="label">صفتك بالنسبة للعقار</span>
+                        <div className="flex flex-wrap gap-2">
+                          {d.ownershipOptions.map((o) => (
+                            <button
+                              key={o}
+                              type="button"
+                              aria-pressed={v.ownership === o}
+                              onClick={() => set('ownership', o)}
+                              className={cx('min-h-[42px] rounded-full border px-4 text-sm transition-colors', v.ownership === o ? 'border-ink bg-inverse font-semibold text-inverse-fg' : 'border-line-strong hover:border-ink/50')}
+                            >
+                              {o}
+                            </button>
+                          ))}
+                        </div>
+                        {err('ownership') && <p className="mt-1.5 text-sm text-danger">{err('ownership')}</p>}
+                      </div>
+                    )}
+                    {urgencies.length > 1 && (
+                      <fieldset data-field="urgency">
+                        <legend className="label">أولوية الزيارة</legend>
+                        <div className="grid gap-2 sm:grid-cols-3">
+                          {urgencies.map(([u, price]) => (
+                            <label
+                              key={u}
+                              className={cx(
+                                'relative flex cursor-pointer flex-col gap-1 rounded-xl border p-3.5 transition-all',
+                                v.urgency === u ? (u === 'EMERGENCY' ? 'border-danger ring-2 ring-danger/25' : u === 'URGENT' ? 'border-warn ring-2 ring-warn/25' : 'border-brand-600 ring-2 ring-brand-600/25') : 'border-line hover:border-ink/40',
+                              )}
+                            >
+                              <input type="radio" name="urgency" className="sr-only" checked={v.urgency === u} onChange={() => set('urgency', u)} />
+                              <span className="flex items-center justify-between gap-2">
+                                <span className="flex items-center gap-1.5 font-bold">
+                                  <span className={cx('h-2.5 w-2.5 rounded-full', u === 'EMERGENCY' ? 'bg-danger soft-ping' : u === 'URGENT' ? 'bg-warn' : 'bg-success')} />
+                                  {URGENCY_LABEL[u]}
+                                </span>
+                                <span className="font-display text-[15px] font-bold">{u === 'NORMAL' ? (s.priceInside === s.priceOutside ? formatJOD(s.priceInside) : `من ${formatJOD(Math.min(s.priceInside, s.priceOutside))}`) : formatJOD(price!)}</span>
+                              </span>
+                              <span className="text-[13px] leading-snug text-muted">{URGENCY_HINT[u]}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </fieldset>
+                    )}
                     <div data-field="requestType">
                       <ChoiceGroup
                         label="نوع الطلب"
@@ -360,14 +437,15 @@ export default function ServiceBook() {
                         {needsProblems && !v.problemIds.length ? (
                           <p className="rounded-lg bg-subtle px-4 py-3 text-sm text-muted">اختر المشكلة أولًا لتظهر لك الأجهزة المناسبة لها.</p>
                         ) : devices.length ? (
-                          <div className="grid gap-2">
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                             {devices.map((x) => (
-                              <Checkbox
+                              <DeviceCard
                                 key={x.id}
-                                label={`${x.name} — ${x.included ? 'مشمول في الزيارة' : `+ ${formatJOD(x.fee)}`}`}
-                                description={x.description}
-                                checked={v.deviceIds.includes(x.id)}
-                                onChange={() => toggle('deviceIds', x.id)}
+                                device={x}
+                                mode="select"
+                                selected={v.deviceIds.includes(x.id)}
+                                onToggle={() => toggle('deviceIds', x.id)}
+                                note={x.accessoryIds.length ? `يشمل مجانًا: ${s.devices.filter((y) => x.accessoryIds.includes(y.id)).map((y) => cleanDeviceName(y.name)).join('، ')} 🎁` : undefined}
                               />
                             ))}
                           </div>
@@ -376,6 +454,17 @@ export default function ServiceBook() {
                         )}
                         <p className="mt-2 text-[13px] text-muted">إضافة جهاز لا تعني زيارة جديدة — تُضاف رسومه فقط لنفس الزيارة.</p>
                       </fieldset>
+                    )}
+
+                    {freeAdds.length > 0 && (
+                      <section>
+                        <h3 className="label">مشمول مجانًا في زيارتك 🎁</h3>
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          {freeAdds.map((x) => (
+                            <DeviceCard key={x.id} device={x} mode="locked" />
+                          ))}
+                        </div>
+                      </section>
                     )}
 
                     {d.combinable.length > 0 && (
@@ -443,7 +532,19 @@ export default function ServiceBook() {
                       </section>
                     )}
                     <div className="grid gap-4 sm:grid-cols-2">
-                      <Select data-field="zoneId" label="المحافظة / المنطقة" value={v.zoneId} onChange={(e) => set('zoneId', e.target.value)} error={err('zoneId')}>
+                      <Select
+                        data-field="zoneId"
+                        label="المحافظة"
+                        value={v.zoneId}
+                        onChange={(e) => {
+                          set('zoneId', e.target.value);
+                          // المنطقة السابقة لا تخص المحافظة الجديدة
+                          const nz = d.zones.find((z) => z.id === e.target.value);
+                          if (nz?.regions.length && !nz.regions.includes(v.area)) set('area', '');
+                          setAreaOther(false);
+                        }}
+                        error={err('zoneId')}
+                      >
                         <option value="">اختر…</option>
                         {d.zones.map((z) => (
                           <option key={z.id} value={z.id}>
@@ -452,8 +553,44 @@ export default function ServiceBook() {
                           </option>
                         ))}
                       </Select>
-                      <Input data-field="area" label="المنطقة / الحي" placeholder="مثال: خلدا" value={v.area} maxLength={120} onChange={(e) => set('area', e.target.value)} error={err('area')} />
+                      {zone?.regions.length && !areaOther ? (
+                        <Select
+                          data-field="area"
+                          label="المنطقة"
+                          value={zone.regions.includes(v.area) ? v.area : ''}
+                          onChange={(e) => {
+                            if (e.target.value === '__other') {
+                              setAreaOther(true);
+                              set('area', '');
+                            } else set('area', e.target.value);
+                          }}
+                          error={err('area')}
+                        >
+                          <option value="">اختر المنطقة…</option>
+                          {zone.regions.map((r) => (
+                            <option key={r} value={r}>
+                              {r}
+                            </option>
+                          ))}
+                          <option value="__other">منطقة أخرى (اكتبها)</option>
+                        </Select>
+                      ) : (
+                        <Input
+                          data-field="area"
+                          label="المنطقة / الحي"
+                          placeholder="مثال: خلدا"
+                          value={v.area}
+                          maxLength={120}
+                          onChange={(e) => set('area', e.target.value)}
+                          error={err('area')}
+                        />
+                      )}
                     </div>
+                    {areaOther && (
+                      <button type="button" className="-mt-3 text-sm font-semibold text-brand-700 hover:underline dark:text-brand-300" onClick={() => setAreaOther(false)}>
+                        ← الاختيار من قائمة المناطق
+                      </button>
+                    )}
                     {zone?.requiresApproval && (
                       <Alert tone="info" title="منطقة تحتاج موافقة مسبقة">
                         هذه المنطقة بعيدة عن نطاق عملنا المعتاد — سنؤكد لك إمكانية الزيارة قبل الموعد.
@@ -521,9 +658,11 @@ export default function ServiceBook() {
                       onEdit={() => goTo(0)}
                       rows={[
                         ['الخدمة', quote?.services.map((x) => x.name).join('، ') ?? s.name],
+                        ['صفتك', v.ownership],
+                        ['الأولوية', urgencies.length > 1 ? URGENCY_LABEL[v.urgency] : ''],
                         ['نوع الطلب', v.requestType ? REQUEST_TYPE_LABEL[v.requestType] : ''],
                         [s.optionsLabel ? 'الخدمات المطلوبة' : 'المشكلة', s.problems.filter((p) => v.problemIds.includes(p.id)).map((p) => p.name).join('، ')],
-                        ['الأجهزة', s.devices.length ? s.devices.filter((x) => v.deviceIds.includes(x.id)).map((x) => x.name).join('، ') || 'بدون أجهزة إضافية' : ''],
+                        ['الأجهزة', s.devices.length ? [...s.devices.filter((x) => v.deviceIds.includes(x.id)), ...freeAdds].map((x) => cleanDeviceName(x.name)).join('، ') || 'بدون أجهزة إضافية' : ''],
                       ]}
                     />
                     <ReviewSection

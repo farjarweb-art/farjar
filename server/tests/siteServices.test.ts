@@ -38,7 +38,7 @@ describe('كتالوج الخدمات', () => {
     // لا يوجد جهاز كخدمة رئيسية مستقلة
     expect(list.some((s: { name: string }) => s.name.includes('جهاز'))).toBe(false);
     expect(water.service.problems).toHaveLength(8);
-    expect(water.service.devices).toHaveLength(4);
+    expect(water.service.devices).toHaveLength(9);
     expect(water.combinable.length).toBeGreaterThan(0);
   });
 });
@@ -49,10 +49,12 @@ describe('التسعير الثابت للزيارة', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.lines.map((l: { kind: string; amount: number }) => [l.kind, l.amount])).toEqual([
       ['visit', 20],
-      ['device', 10],
-      ['device', 25],
+      ['device', 30],
+      ['device', 40],
+      ['device', 0], // خطافات المنظار تُضاف مجانًا مع التنظير
     ]);
-    expect(res.body.data.total).toBe(55);
+    expect(res.body.data.total).toBe(90);
+    expect(res.body.data.devices.find((d: { auto?: boolean }) => d.auto).name).toContain('خطافات');
   });
 
   it('جهاز لا يناسب المشكلة المختارة مرفوض، و"مشكلة أخرى" تفتح كل الأجهزة', async () => {
@@ -74,17 +76,21 @@ describe('التسعير الثابت للزيارة', () => {
 
   it('أكثر من خدمة: سعر الزيارة المجمعة بدل جمع الزيارات، وخدمة خارج الباقة تُضاف وحدها', async () => {
     const [cracks, paint, electrical, machines] = await Promise.all(['cracks-inspection', 'paint-finishing-inspection', 'electrical-inspection', 'machines-lines-inspection'].map(slug));
-    const res = await quote({ serviceIds: [cracks, paint, electrical], zoneId: amman });
-    expect(res.body.data.lines).toHaveLength(1);
-    expect(res.body.data.lines[0]).toMatchObject({ kind: 'bundle', amount: 35 });
+    const pairs = (r: { body: { data: { lines: { kind: string; amount: number }[] } } }) => r.body.data.lines.map((l) => [l.kind, l.amount]);
+    // فحص التشققات (35) + الكهرباء (15) ضمن باقة الفحص الشامل (45)، والدهان وحده، وأداة قياس التشققات مجانًا
+    expect(pairs(await quote({ serviceIds: [cracks, paint, electrical], zoneId: amman }))).toEqual([
+      ['bundle', 45],
+      ['visit', 15],
+      ['device', 0],
+    ]);
     const [general] = await Promise.all(['general-property-inspection'].map(slug));
-    const mixed = await quote({ serviceIds: [cracks, general, machines], zoneId: amman });
-    expect(mixed.body.data.lines.map((l: { kind: string; amount: number }) => [l.kind, l.amount])).toEqual([
+    expect(pairs(await quote({ serviceIds: [general, paint, electrical], zoneId: amman }))).toEqual([['bundle', 35]]);
+    expect(pairs(await quote({ serviceIds: [general, paint, machines], zoneId: amman }))).toEqual([
       ['bundle', 35],
       ['visit', 45],
     ]);
     // الباقة لا تُطبق إن كانت أغلى من الزيارات المنفصلة (15 + 15 < 35)
-    const cheap = await quote({ serviceIds: [cracks, paint], zoneId: amman });
+    const cheap = await quote({ serviceIds: [paint, electrical], zoneId: amman });
     expect(cheap.body.data.total).toBe(30);
   });
 
@@ -124,7 +130,7 @@ describe('رحلة العميل من الحجز حتى الإغلاق', () => {
     description: 'رطوبة في جدار غرفة النوم بجانب الحمام',
     date,
     time: '10:00',
-    expectedTotal: 35,
+    expectedTotal: 40,
     acceptTerms: true,
   });
 
@@ -143,13 +149,13 @@ describe('رحلة العميل من الحجز حتى الإغلاق', () => {
   it('الحجز يحفظ السعر المعتمد، ولا يتغير بتعديل الأسعار لاحقًا', async () => {
     const res = await customer.post('/api/v1/site-services/requests').send(base());
     expect(res.status).toBe(201);
-    expect(res.body.data.total).toBe(35);
+    expect(res.body.data.total).toBe(40);
     id = res.body.data.id;
     // المدير يرفع السعر، والسجل يحفظ من غيّر
     await admin.patch(`/api/v1/admin/site-services/services/${water.service.id}`).send({ priceInside: 25 });
     const mine = (await customer.get(`/api/v1/account/service-requests/${id}`)).body.data;
-    expect(mine.total).toBe(35);
-    expect(mine.priceLines.map((l: { amount: number }) => l.amount)).toEqual([20, 15]);
+    expect(mine.total).toBe(40);
+    expect(mine.priceLines.map((l: { amount: number }) => l.amount)).toEqual([20, 20]);
     const log = (await admin.get('/api/v1/admin/site-services/price-log')).body.data.items;
     expect(log[0]).toMatchObject({ action: 'price_change', actor: 'أدمن' });
     expect(log[0].meta.changes.priceInside).toEqual({ from: 20, to: 25 });
@@ -177,7 +183,7 @@ describe('رحلة العميل من الحجز حتى الإغلاق', () => {
     // قسم التسربات: رسوم الزيارة تُخصم من الإصلاح
     const q = await admin.post(`/api/v1/admin/service-requests/${id}/quotes`).send({ items: [{ description: 'استبدال وصلة وإعادة القصارة', qty: 1, unitPrice: 100 }], send: true });
     expect(q.status).toBe(201);
-    expect(q.body.data).toMatchObject({ subtotal: 100, visitFeeDeduction: 35, total: 65 });
+    expect(q.body.data).toMatchObject({ subtotal: 100, visitFeeDeduction: 40, total: 60 });
     expect((await admin.get(`/api/v1/admin/service-requests/${id}`)).body.data.status).toBe('AWAITING_APPROVAL');
 
     const mine = (await customer.get(`/api/v1/account/service-requests/${id}`)).body.data;
@@ -196,7 +202,7 @@ describe('رحلة العميل من الحجز حتى الإغلاق', () => {
     expect(kinds).toEqual(expect.arrayContaining(['created', 'technician', 'schedule', 'status', 'report', 'quote', 'work']));
 
     const stats = (await admin.get('/api/v1/admin/service-requests/stats')).body.data;
-    expect(stats).toMatchObject({ requests: 1, visits: 1, visitFees: 35, repairsApproved: 1, repairsValue: 65 });
+    expect(stats).toMatchObject({ requests: 1, visits: 1, visitFees: 40, repairsApproved: 1, repairsValue: 60 });
   });
 
   it('العميل يلغي طلبه قبل التأكيد فقط', async () => {

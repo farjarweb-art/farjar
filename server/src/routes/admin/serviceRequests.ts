@@ -62,7 +62,7 @@ serviceRequestsAdminRouter.get(
         orderBy: { createdAt: 'desc' },
         skip: (q.page - 1) * q.pageSize,
         take: q.pageSize,
-        select: { id: true, number: true, ref: true, status: true, requestType: true, name: true, phone: true, clientType: true, zoneName: true, tier: true, services: true, scheduledAt: true, total: true, needsApproval: true, createdAt: true, technician: { select: { id: true, name: true } } },
+        select: { id: true, number: true, ref: true, status: true, requestType: true, name: true, phone: true, clientType: true, zoneName: true, tier: true, services: true, scheduledAt: true, total: true, needsApproval: true, urgency: true, createdAt: true, technician: { select: { id: true, name: true } } },
       }),
       prisma.serviceRequest.count({ where }),
       prisma.serviceRequest.groupBy({ by: ['status'], where: { deletedAt: null }, _count: true }),
@@ -228,6 +228,11 @@ const reportInput = z.object({
   devicesUsed: z.string().trim().max(2000).default(''),
   recommendations: z.string().trim().max(10_000).default(''),
   repairsNeeded: z.string().trim().max(10_000).default(''),
+  /** إحداثيات الموقع من جهاز الفني (تظهر في التقرير النهائي) */
+  gpsLat: z.number().min(-90).max(90).nullable().optional(),
+  gpsLng: z.number().min(-180).max(180).nullable().optional(),
+  gpsAccuracy: z.number().min(0).max(100_000).nullable().optional(),
+  gpsAt: z.coerce.date().nullable().optional(),
   publish: z.boolean().optional(),
 });
 

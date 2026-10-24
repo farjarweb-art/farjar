@@ -5,7 +5,7 @@ import { Breadcrumbs, Button, ButtonLink, ErrorState, Icon, Modal, Skeleton, Tag
 import { useToast } from '../../context/ToastContext';
 import { ApiError, api, fileHref } from '../../lib/api';
 import { cx, formatDate, formatJOD } from '../../lib/format';
-import { CLIENT_TYPE_LABEL, POLICY_TEXT, isDocumentMedia, QUOTE_STATUS_LABEL, STATUS_FLOW, STATUS_LABEL, TIER_LABEL, statusTone, type RequestCore, type SrStatus } from '../../lib/siteServices';
+import { CLIENT_TYPE_LABEL, URGENCY_LABEL, POLICY_TEXT, isDocumentMedia, QUOTE_STATUS_LABEL, STATUS_FLOW, STATUS_LABEL, TIER_LABEL, statusTone, type RequestCore, type SrStatus } from '../../lib/siteServices';
 import { useAsync, useDocumentTitle } from '../../lib/useAsync';
 
 type Detail = RequestCore & {
@@ -158,6 +158,8 @@ export default function ServiceRequestDetail() {
             <Row label="الموقع" value={`${r.zoneName} (${TIER_LABEL[r.tier]}) — ${r.area}`} />
             <Row label="العنوان" value={r.address} />
             <Row label="نوع العميل" value={`${CLIENT_TYPE_LABEL[r.clientType]} — ${r.propertyType}`} />
+            <Row label="صفتك" value={r.ownership ?? undefined} />
+            {r.urgency && r.urgency !== 'NORMAL' && <Row label="الأولوية" value={URGENCY_LABEL[r.urgency]} />}
             <Row label="المشكلة" value={r.problems.map((p) => p.name).join('، ')} />
             <Row label="الأجهزة" value={r.devices.map((d) => d.name).join('، ')} />
             {(r.extra ?? []).map((x) => (

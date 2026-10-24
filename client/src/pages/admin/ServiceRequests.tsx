@@ -23,6 +23,7 @@ type Row = {
   scheduledAt: string;
   total: number;
   needsApproval: boolean;
+  urgency?: 'NORMAL' | 'URGENT' | 'EMERGENCY';
   technician: { id: string; name: string } | null;
 };
 type Paged = { items: Row[]; total: number; page: number; pageSize: number; statusCounts: Partial<Record<SrStatus, number>> };
@@ -97,6 +98,8 @@ export default function ServiceRequests() {
           {r.zoneName}
           <span className="block text-xs text-muted">{TIER_LABEL[r.tier]}</span>
           {r.needsApproval && <Tag tone="sand">تحتاج موافقة</Tag>}
+          {r.urgency === 'URGENT' && <Tag tone="sand">⚡ عاجلة</Tag>}
+          {r.urgency === 'EMERGENCY' && <Tag tone="danger">🚨 طارئة</Tag>}
         </span>
       ),
       hideOnMobile: true,

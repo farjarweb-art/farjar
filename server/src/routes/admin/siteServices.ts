@@ -5,6 +5,8 @@ import { audit } from '../../lib/audit';
 import { asyncHandler, badRequest, notFound, ok } from '../../lib/http';
 import { randomSuffix, slugify } from '../../lib/ids';
 import { prisma } from '../../lib/prisma';
+import { memoryUpload, uploadGuard } from '../../middleware/upload';
+import { POLICIES, deleteStored, validateAndStore } from '../../services/upload.service';
 
 /**
  * كتالوج الخدمات والمعاينات (لوحة الإدارة): الخدمات، المشكلات، الأجهزة، المناطق، الزيارات المجمعة.
@@ -55,8 +57,10 @@ siteServicesAdminRouter.get(
         priceInside: num(s.priceInside),
         priceOutside: num(s.priceOutside),
         travelFee: num(s.travelFee),
+        priceUrgent: num(s.priceUrgent),
+        priceEmergency: num(s.priceEmergency),
         problems: s.problems.map((p) => ({ id: p.id, name: p.name, description: p.description, quoteRequired: p.quoteRequired, isOther: p.isOther, active: p.active, deviceIds: p.devices.map((d) => d.id) })),
-        devices: s.devices.map((l) => ({ deviceId: l.deviceId, included: l.included, fee: num(l.fee) })),
+        devices: s.devices.map((l) => ({ deviceId: l.deviceId, included: l.included, fee: num(l.fee), autoInclude: l.autoInclude })),
       })),
       devices: devices.map((d) => ({ ...d, fee: num(d.fee) })),
       zones: zones.map((z) => ({ ...z, travelFee: num(z.travelFee) })),
@@ -76,6 +80,9 @@ const serviceInput = z.object({
   priceInside: money,
   priceOutside: money,
   travelFee: money.default(0),
+  /** زيارة عاجلة / طارئة (فارغ = غير متاحة) */
+  priceUrgent: money.nullable().default(null),
+  priceEmergency: money.nullable().default(null),
   discountPercent: z.coerce.number().int().min(0).max(90).default(0),
   durationMinutes: z.coerce.number().int().min(15, 'المدة 15 دقيقة على الأقل').max(24 * 60).default(60),
   visitFeePolicy: z.enum(['DEDUCTIBLE', 'SEPARATE']).default('SEPARATE'),
@@ -110,9 +117,11 @@ const serviceInput = z.object({
     .default([]),
 });
 
-const priceFields = (s: { priceInside: unknown; priceOutside: unknown; travelFee: unknown; discountPercent: unknown; priceOnRequest: boolean }) => ({
+const priceFields = (s: { priceInside: unknown; priceOutside: unknown; priceUrgent: unknown; priceEmergency: unknown; travelFee: unknown; discountPercent: unknown; priceOnRequest: boolean }) => ({
   priceInside: s.priceInside,
   priceOutside: s.priceOutside,
+  priceUrgent: s.priceUrgent,
+  priceEmergency: s.priceEmergency,
   travelFee: s.travelFee,
   discountPercent: s.discountPercent,
   priceOnRequest: s.priceOnRequest ? 1 : 0,
@@ -125,7 +134,7 @@ siteServicesAdminRouter.post(
     let slug = slugify(input.name);
     if (await prisma.siteService.findUnique({ where: { slug } })) slug = `${slug}-${randomSuffix()}`;
     const s = await prisma.siteService.create({
-      data: { ...input, slug, audiences: [...new Set(input.audiences)], requestTypes: [...new Set(input.requestTypes)], priceInside: D(input.priceInside), priceOutside: D(input.priceOutside), travelFee: D(input.travelFee) },
+      data: { ...input, slug, audiences: [...new Set(input.audiences)], requestTypes: [...new Set(input.requestTypes)], priceInside: D(input.priceInside), priceOutside: D(input.priceOutside), travelFee: D(input.travelFee), priceUrgent: input.priceUrgent != null ? D(input.priceUrgent) : null, priceEmergency: input.priceEmergency != null ? D(input.priceEmergency) : null },
     });
     await logPrices(req, 'service', s.id, s.name, null, priceFields(input));
     await audit({ actorType: 'admin', actorId: req.auth!.sub, action: 'create', entity: 'site_service', entityId: s.id });
@@ -148,6 +157,8 @@ siteServicesAdminRouter.patch(
         priceInside: input.priceInside != null ? D(input.priceInside) : undefined,
         priceOutside: input.priceOutside != null ? D(input.priceOutside) : undefined,
         travelFee: input.travelFee != null ? D(input.travelFee) : undefined,
+        priceUrgent: input.priceUrgent === undefined ? undefined : input.priceUrgent == null ? null : D(input.priceUrgent),
+        priceEmergency: input.priceEmergency === undefined ? undefined : input.priceEmergency == null ? null : D(input.priceEmergency),
       },
     });
     await logPrices(req, 'service', s.id, s.name, priceFields(before), priceFields(s));
@@ -206,18 +217,18 @@ siteServicesAdminRouter.put(
   }),
 );
 
-/** الأجهزة المتاحة للخدمة: مشمول بلا رسوم، أو رسوم خاصة بالخدمة */
+/** الأجهزة المتاحة للخدمة: مشمول بلا رسوم، رسوم خاصة بالخدمة، أو إضافة تلقائية مجانية */
 siteServicesAdminRouter.put(
   '/services/:id/devices',
   asyncHandler(async (req, res) => {
-    const list = z.array(z.object({ deviceId: z.string().max(40), included: z.boolean().default(false), fee: money.nullable().optional() })).max(30).parse(req.body);
+    const list = z.array(z.object({ deviceId: z.string().max(40), included: z.boolean().default(false), fee: money.nullable().optional(), autoInclude: z.boolean().default(false) })).max(40).parse(req.body);
     const s = await prisma.siteService.findFirst({ where: { id: req.params.id, deletedAt: null }, include: { devices: true } });
     if (!s) throw notFound('الخدمة غير موجودة');
     const devices = await prisma.serviceDevice.findMany({ where: { id: { in: list.map((l) => l.deviceId) } }, select: { id: true, name: true } });
     if (devices.length !== new Set(list.map((l) => l.deviceId)).size) throw badRequest('أحد الأجهزة غير موجود');
     await prisma.$transaction([
       prisma.serviceDeviceLink.deleteMany({ where: { serviceId: s.id } }),
-      prisma.serviceDeviceLink.createMany({ data: list.map((l) => ({ serviceId: s.id, deviceId: l.deviceId, included: l.included, fee: l.fee != null ? D(l.fee) : null })) }),
+      prisma.serviceDeviceLink.createMany({ data: list.map((l) => ({ serviceId: s.id, deviceId: l.deviceId, included: l.included || l.autoInclude, autoInclude: l.autoInclude, fee: l.fee != null ? D(l.fee) : null })) }),
     ]);
     for (const l of list) {
       const prev = s.devices.find((x) => x.deviceId === l.deviceId);
@@ -234,14 +245,62 @@ const deviceInput = z.object({
   name: text(160).min(2, 'اكتب اسم الجهاز'),
   description: text(600).default(''),
   fee: money,
+  code: z.string().trim().regex(/^[a-z0-9_]{2,60}$/, 'الرمز: أحرف إنجليزية صغيرة وأرقام و _ فقط').nullable().optional(),
+  mechanism: text(1500).default(''),
+  /** سطر لكل فائدة */
+  benefits: text(2000).default(''),
+  scopePriced: z.boolean().default(false),
+  /** ملحق مجاني يُضاف مع جهاز أب (مثل خطافات المنظار) */
+  parentId: z.string().max(40).nullable().optional(),
   sortOrder: z.coerce.number().int().min(0).max(10_000).default(0),
   active: z.boolean().default(true),
 });
+
+async function checkDevice(input: { code?: string | null; parentId?: string | null }, id?: string) {
+  if (input.code) {
+    const dup = await prisma.serviceDevice.findUnique({ where: { code: input.code }, select: { id: true } });
+    if (dup && dup.id !== id) throw badRequest('الرمز مستخدم لجهاز آخر', { field: 'code' });
+  }
+  if (input.parentId) {
+    if (input.parentId === id) throw badRequest('لا يكون الجهاز ملحقًا لنفسه', { field: 'parentId' });
+    const parent = await prisma.serviceDevice.findUnique({ where: { id: input.parentId }, select: { parentId: true } });
+    if (!parent) throw badRequest('الجهاز الأب غير موجود', { field: 'parentId' });
+    if (parent.parentId) throw badRequest('اختر جهازًا رئيسيًا (ليس ملحقًا)', { field: 'parentId' });
+  }
+}
+
+/** صورة الجهاز (تستبدل الرسم الافتراضي) */
+siteServicesAdminRouter.post(
+  '/devices/:id/image',
+  uploadGuard(10),
+  memoryUpload(8, 1).single('file'),
+  asyncHandler(async (req, res) => {
+    const d = await prisma.serviceDevice.findUnique({ where: { id: req.params.id } });
+    if (!d) throw notFound('الجهاز غير موجود');
+    if (!req.file) throw badRequest('اختر صورة');
+    const [img] = await validateAndStore([req.file], POLICIES.photos, 'services/devices');
+    await prisma.serviceDevice.update({ where: { id: d.id }, data: { imageUrl: img.url, imagePublicId: img.publicId } });
+    if (d.imagePublicId) await deleteStored(d.imagePublicId);
+    ok(res, { imageUrl: img.url });
+  }),
+);
+
+siteServicesAdminRouter.delete(
+  '/devices/:id/image',
+  asyncHandler(async (req, res) => {
+    const d = await prisma.serviceDevice.findUnique({ where: { id: req.params.id } });
+    if (!d) throw notFound('الجهاز غير موجود');
+    await prisma.serviceDevice.update({ where: { id: d.id }, data: { imageUrl: null, imagePublicId: null } });
+    if (d.imagePublicId) await deleteStored(d.imagePublicId);
+    ok(res, { deleted: true });
+  }),
+);
 
 siteServicesAdminRouter.post(
   '/devices',
   asyncHandler(async (req, res) => {
     const input = deviceInput.parse(req.body);
+    await checkDevice(input);
     const d = await prisma.serviceDevice.create({ data: { ...input, fee: D(input.fee) } });
     await logPrices(req, 'device', d.id, d.name, null, { fee: input.fee });
     ok(res, { id: d.id }, 201);
@@ -254,6 +313,7 @@ siteServicesAdminRouter.patch(
     const input = deviceInput.partial().parse(req.body);
     const before = await prisma.serviceDevice.findUnique({ where: { id: req.params.id } });
     if (!before) throw notFound('الجهاز غير موجود');
+    await checkDevice(input, before.id);
     const d = await prisma.serviceDevice.update({ where: { id: before.id }, data: { ...input, fee: input.fee != null ? D(input.fee) : undefined } });
     await logPrices(req, 'device', d.id, d.name, { fee: before.fee }, { fee: d.fee });
     ok(res, { id: d.id });
@@ -278,6 +338,8 @@ const zoneInput = z.object({
   tier: z.enum(['INSIDE_AMMAN', 'OUTSIDE_AMMAN']),
   travelFee: money.default(0),
   requiresApproval: z.boolean().default(false),
+  /** المناطق داخل المحافظة */
+  regions: z.array(text(80).min(1)).max(200).transform((l) => [...new Set(l)]).default([]),
   sortOrder: z.coerce.number().int().min(0).max(10_000).default(0),
   active: z.boolean().default(true),
 });

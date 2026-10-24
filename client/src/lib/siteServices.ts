@@ -23,6 +23,17 @@ export type SrStatus =
   | 'CLOSED'
   | 'CANCELLED';
 export type QuoteStatus = 'DRAFT' | 'SENT' | 'ACCEPTED' | 'REJECTED';
+export type Urgency = 'NORMAL' | 'URGENT' | 'EMERGENCY';
+
+/** صفة العميل بالنسبة للعقار (نفس قائمة السيرفر) */
+export const OWNERSHIP_OPTIONS = ['مالك العقار', 'مستأجر', 'مشتري محتمل (فحص قبل الشراء أو الاستئجار)', 'وكيل أو مدير عقار', 'مقاول أو مهندس'];
+
+export const URGENCY_LABEL: Record<Urgency, string> = { NORMAL: 'زيارة عادية', URGENT: 'زيارة عاجلة', EMERGENCY: 'زيارة طارئة' };
+export const URGENCY_HINT: Record<Urgency, string> = {
+  NORMAL: 'موعد حسب جدول الفريق خلال أيام العمل',
+  URGENT: 'أولوية في الجدولة لأقرب موعد متاح',
+  EMERGENCY: 'حالة خطرة تحتاج تدخلًا فوريًا (تشققات متسارعة، هبوط، تسرب كبير)',
+};
 
 export const AUDIENCE_LABEL: Record<Audience, string> = {
   HOME: 'المنازل والشقق والفلل',
@@ -112,6 +123,8 @@ export type ServiceCard = {
   discountPercent: number;
   featured: boolean;
   hasProblems: boolean;
+  priceUrgent?: number | null;
+  priceEmergency?: number | null;
   priceOnRequest: boolean;
 };
 
@@ -120,8 +133,31 @@ export type FormField = { key: string; label: string; type: 'text' | 'textarea' 
 export type ExtraAnswer = { key: string; label: string; value: string };
 
 export const SCOPE_PRICED = 'يحدد بعد مراجعة نطاق المشروع';
+export const AREA_PRICED = 'يحدد حسب المساحة ونطاق العمل';
 
-export type Zone = { id: string; name: string; tier: PriceTier; travelFee: number; requiresApproval: boolean };
+export type Zone = { id: string; name: string; tier: PriceTier; travelFee: number; requiresApproval: boolean; regions: string[] };
+
+/** جهاز أو فحص إضافي كما يظهر للعميل */
+export type ServiceDeviceInfo = {
+  id: string;
+  name: string;
+  description: string;
+  fee: number;
+  included: boolean;
+  imageUrl: string | null;
+  mechanism: string;
+  benefits: string[];
+  /** معدات ثقيلة تُسعّر حسب المساحة */
+  scopePriced: boolean;
+  /** ملحق مجاني يُضاف مع جهازه الأب */
+  parentId: string | null;
+  /** يُضاف تلقائيًا مجانًا لكل حجز */
+  autoInclude: boolean;
+  accessoryIds: string[];
+};
+
+/** يزيل وسم "(إضافة مجانية 🎁)" من الاسم لعرضه كشارة منفصلة */
+export const cleanDeviceName = (n: string) => n.replace(/\s*\(?إضافة مجانية\s*🎁\)?\s*/g, ' ').trim();
 
 export type ServiceDetail = {
   service: {
@@ -135,6 +171,8 @@ export type ServiceDetail = {
     priceInside: number;
     priceOutside: number;
     travelFee: number;
+    priceUrgent: number | null;
+    priceEmergency: number | null;
     discountPercent: number;
     durationMinutes: number;
     visitFeePolicy: VisitFeePolicy;
@@ -146,12 +184,13 @@ export type ServiceDetail = {
     deliverables: string[];
     formFields: FormField[];
     problems: { id: string; name: string; isOther: boolean; description: string[]; quoteRequired: boolean; deviceIds: string[] }[];
-    devices: { id: string; name: string; description: string; fee: number; included: boolean }[];
+    devices: ServiceDeviceInfo[];
     bundles: { id: string; name: string; priceInside: number; priceOutside: number; terms: string }[];
   };
   combinable: { id: string; name: string; slug: string; priceInside: number; priceOutside: number }[];
   zones: Zone[];
   clientTypes: { value: ClientType; label: string }[];
+  ownershipOptions: string[];
   generalTerms: string[];
 };
 
@@ -161,9 +200,10 @@ export type PriceLine = { kind: 'visit' | 'bundle' | 'discount' | 'device' | 'tr
 export type VisitQuote = {
   tier: PriceTier;
   zone: { id: string; name: string; requiresApproval: boolean };
+  urgency: Urgency;
   services: { id: string; name: string; slug: string }[];
   problems: { id: string; name: string }[];
-  devices: { id: string; name: string; fee: number; included: boolean }[];
+  devices: { id: string; name: string; fee: number; included: boolean; auto?: boolean; scopePriced?: boolean }[];
   lines: PriceLine[];
   total: number;
   visitFeePolicy: VisitFeePolicy;
@@ -174,13 +214,14 @@ export type VisitQuote = {
 
 export type RequestCreated = { id: string; number: number; ref: string; status: SrStatus; total: number; scheduledAt: string; message: string; whatsapp: WhatsAppResult };
 
-/** الأجهزة المناسبة للمشكلات المختارة (نفس قاعدة السيرفر) */
+/** الأجهزة التي يختارها العميل حسب المشكلات المختارة (نفس قاعدة السيرفر) — بلا الملحقات والإضافات التلقائية */
 export function allowedDevices(service: ServiceDetail['service'], problemIds: string[]) {
-  if (!service.problems.length) return service.devices;
+  const selectable = service.devices.filter((d) => !d.parentId && !d.autoInclude);
+  if (!service.problems.length) return selectable;
   const chosen = service.problems.filter((p) => problemIds.includes(p.id));
-  if (chosen.some((p) => p.isOther)) return service.devices;
+  if (chosen.some((p) => p.isOther)) return selectable;
   const ids = new Set(chosen.flatMap((p) => p.deviceIds));
-  return service.devices.filter((d) => ids.has(d.id));
+  return selectable.filter((d) => ids.has(d.id));
 }
 
 export type QuoteItem = { description: string; qty: number; unitPrice: number };
@@ -206,6 +247,10 @@ export type ServiceReport = {
   devicesUsed: string;
   recommendations: string;
   repairsNeeded: string;
+  gpsLat?: number | null;
+  gpsLng?: number | null;
+  gpsAccuracy?: number | null;
+  gpsAt?: string | null;
   published: boolean;
   publishedAt: string | null;
   updatedAt: string;
@@ -226,6 +271,8 @@ export type RequestCore = {
   phone: string;
   clientType: ClientType;
   propertyType: string;
+  ownership?: string | null;
+  urgency?: Urgency;
   zoneName: string;
   tier: PriceTier;
   area: string;
@@ -271,13 +318,21 @@ export function normalizeDetail(d: ServiceDetail): ServiceDetail {
   const s = d.service;
   return {
     ...d,
+    ownershipOptions: d.ownershipOptions ?? [],
+    zones: d.zones.map((z) => ({ ...z, regions: z.regions ?? [] })),
     service: {
       ...s,
       optionsLabel: s.optionsLabel ?? '',
       priceOnRequest: !!s.priceOnRequest,
       deliverables: s.deliverables ?? [],
       formFields: s.formFields ?? [],
+      priceUrgent: s.priceUrgent ?? null,
+      priceEmergency: s.priceEmergency ?? null,
+      devices: s.devices.map((x) => ({ ...x, imageUrl: x.imageUrl ?? null, mechanism: x.mechanism ?? '', benefits: x.benefits ?? [], scopePriced: !!x.scopePriced, parentId: x.parentId ?? null, autoInclude: !!x.autoInclude, accessoryIds: x.accessoryIds ?? [] })),
       problems: s.problems.map((p) => ({ ...p, description: p.description ?? [], quoteRequired: !!p.quoteRequired })),
     },
   };
 }
+
+/** رابط خرائط جوجل لإحداثيات */
+export const mapsLink = (lat: number, lng: number) => `https://www.google.com/maps?q=${lat.toFixed(6)},${lng.toFixed(6)}`;

@@ -2,7 +2,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { ErrorState, Icon, PageHeader, Skeleton } from '../../components/ui';
 import { api } from '../../lib/api';
 import { cx, formatJOD } from '../../lib/format';
-import { AUDIENCE_LABEL, type Audience, type ServiceCard } from '../../lib/siteServices';
+import { AUDIENCE_LABEL, OWNERSHIP_OPTIONS, type Audience, type ServiceCard } from '../../lib/siteServices';
 import { useAsync, useDocumentTitle } from '../../lib/useAsync';
 
 const TABS: { value: Audience; label: string; icon: 'home' | 'factory' }[] = [
@@ -15,6 +15,15 @@ export default function Services() {
   useDocumentTitle('الخدمات والمعاينات والصيانة');
   const [params, setParams] = useSearchParams();
   const tab: Audience = params.get('for') === 'business' ? 'BUSINESS' : 'HOME';
+  const ownership = params.get('ownership') ?? '';
+  // صفة العميل تنتقل لصفحة الخدمة ثم للحجز
+  const qs = ownership ? `?${new URLSearchParams({ ownership })}` : '';
+  const setParam = (k: string, val: string | null) => {
+    const next = new URLSearchParams(params);
+    if (val) next.set(k, val);
+    else next.delete(k);
+    setParams(next, { replace: true });
+  };
   const { data, error, loading, reload } = useAsync(() => api.get<{ services: ServiceCard[] }>('/site-services'), [], 'site-services');
   const list = (data?.services ?? []).filter((s) => s.audiences.includes(tab));
   const featured = list.filter((s) => s.featured);
@@ -29,27 +38,55 @@ export default function Services() {
       />
 
       <div className="container py-8 md:py-12">
+        <section className="rounded-2xl border border-line bg-surface p-4 shadow-sm sm:p-6" aria-label="ابدأ الحجز">
+          <ol className="space-y-6">
+            <li>
+              <StartStep n={1} title="صفتك بالنسبة للعقار" done={!!ownership} />
+              <div className="mt-3 flex flex-wrap gap-2">
+                {OWNERSHIP_OPTIONS.map((o) => (
+                  <button
+                    key={o}
+                    type="button"
+                    aria-pressed={ownership === o}
+                    onClick={() => setParam('ownership', ownership === o ? null : o)}
+                    className={cx('min-h-[42px] rounded-full border px-4 text-sm transition-colors', ownership === o ? 'border-ink bg-inverse font-semibold text-inverse-fg' : 'border-line-strong hover:border-ink/50')}
+                  >
+                    {o}
+                  </button>
+                ))}
+              </div>
+            </li>
+            <li>
+              <StartStep n={2} title="نوع العقار" done />
+              <div className="mt-3">
         <div role="tablist" aria-label="نوع العقار" className="grid gap-2 sm:grid-cols-2">
-          {TABS.map((t) => {
-            const active = t.value === tab;
-            return (
-              <button
-                key={t.value}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                onClick={() => setParams(t.value === 'BUSINESS' ? { for: 'business' } : {}, { replace: true })}
-                className={cx(
-                  'flex min-h-[3.5rem] items-center gap-3 rounded-xl border px-4 py-3 text-start font-semibold transition-colors',
-                  active ? 'border-ink bg-inverse text-inverse-fg' : 'border-line-strong bg-surface hover:border-ink/50',
-                )}
-              >
-                <Icon name={t.icon} className="h-5 w-5 shrink-0" />
-                {t.label}
-              </button>
-            );
-          })}
-        </div>
+                  {TABS.map((t) => {
+                    const active = t.value === tab;
+                    return (
+                      <button
+                        key={t.value}
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        onClick={() => setParam('for', t.value === 'BUSINESS' ? 'business' : null)}
+                        className={cx(
+                          'flex min-h-[3.5rem] items-center gap-3 rounded-xl border px-4 py-3 text-start font-semibold transition-colors',
+                          active ? 'border-ink bg-inverse text-inverse-fg' : 'border-line-strong bg-surface hover:border-ink/50',
+                        )}
+                      >
+                        <Icon name={t.icon} className="h-5 w-5 shrink-0" />
+                        {t.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </li>
+            <li>
+              <StartStep n={3} title="اختر الخدمة الأساسية، ثم أضف أجهزة الفحص التي تحتاجها" />
+            </li>
+          </ol>
+        </section>
 
         {error ? (
           <div className="mt-8">
@@ -63,27 +100,27 @@ export default function Services() {
           </div>
         ) : (
           <>
-            {featured.map((s) => (
-              <Link key={s.id} to={`/services/${s.slug}`} className="group mt-8 block overflow-hidden rounded-xl bg-inverse p-6 text-inverse-fg md:p-8">
+            {featured.length > 0 && <div className="mt-8 grid gap-4 lg:grid-cols-2">{featured.map((s) => (
+              <Link key={s.id} to={`/services/${s.slug}${qs}`} className="group flex flex-col overflow-hidden rounded-xl bg-inverse p-6 text-inverse-fg md:p-8">
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-fg">
                   <Icon name="star" className="h-3.5 w-3.5" /> قسم رئيسي
                 </span>
                 <h2 className="mt-4 max-w-3xl text-2xl leading-snug text-inverse-fg md:text-[2rem]">{s.name}</h2>
-                <p className="mt-3 max-w-2xl text-inverse-fg/70">{s.summary}</p>
+                <p className="mt-3 max-w-2xl flex-1 text-inverse-fg/70">{s.summary}</p>
                 <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
                   <PriceTag s={s} dark />
                   <span className="inline-flex min-h-[44px] items-center gap-2 rounded-full bg-primary px-5 font-semibold text-primary-fg transition-transform group-hover:-translate-x-1">
-                    اختر المشكلة واحجز <Icon name="arrowLeft" className="h-4 w-4" />
+                    {s.hasProblems ? 'اختر المشكلة واحجز' : 'التفاصيل والحجز'} <Icon name="arrowLeft" className="h-4 w-4" />
                   </span>
                 </div>
               </Link>
-            ))}
+            ))}</div>}
 
             <h2 className="mb-4 mt-10 text-xl">{AUDIENCE_LABEL[tab]}</h2>
             <ul className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {rest.map((s) => (
                 <li key={s.id}>
-                  <Link to={`/services/${s.slug}`} className="card card-hover group flex h-full flex-col p-5">
+                  <Link to={`/services/${s.slug}${qs}`} className="card card-hover group flex h-full flex-col p-5">
                     <h3 className="text-lg leading-snug">{s.name}</h3>
                     <p className="mt-2 flex-1 text-[15px] leading-relaxed text-muted">{s.summary}</p>
                     <div className="mt-4 flex items-end justify-between gap-3 border-t border-line pt-4">
@@ -125,6 +162,25 @@ function PriceTag({ s, dark }: { s: ServiceCard; dark?: boolean }) {
       </span>
       خارجها {formatJOD(s.priceOutside)}
       {s.discountPercent > 0 && <span className="ms-2 rounded bg-primary px-1.5 py-0.5 text-xs font-semibold text-primary-fg">خصم {s.discountPercent}%</span>}
+      {s.priceUrgent != null && (
+        <span className={cx('mt-1.5 flex items-center gap-1.5 text-[13px]', dark ? 'text-inverse-fg/80' : 'text-muted')}>
+          <span className="h-2 w-2 rounded-full bg-warn" /> عاجلة {formatJOD(s.priceUrgent)}
+          {s.priceEmergency != null && (
+            <>
+              <span className="ms-1 h-2 w-2 rounded-full bg-danger" /> طارئة {formatJOD(s.priceEmergency)}
+            </>
+          )}
+        </span>
+      )}
     </p>
+  );
+}
+
+function StartStep({ n, title, done }: { n: number; title: string; done?: boolean }) {
+  return (
+    <h2 className="flex items-center gap-2.5 text-base sm:text-lg">
+      <span className={cx('grid h-7 w-7 shrink-0 place-items-center rounded-full text-sm font-bold', done ? 'bg-success text-white' : 'bg-inverse text-inverse-fg')}>{done ? <Icon name="check" className="h-4 w-4" /> : n}</span>
+      {title}
+    </h2>
   );
 }

@@ -1,13 +1,15 @@
-import { useParams } from 'react-router-dom';
+import { useLocation, useParams } from 'react-router-dom';
+import { DeviceCard } from '../../components/services/DeviceCard';
 import { Breadcrumbs, ButtonLink, ErrorState, Icon, Skeleton } from '../../components/ui';
 import { api } from '../../lib/api';
 import { formatJOD } from '../../lib/format';
-import { AUDIENCE_LABEL, SCOPE_PRICED, normalizeDetail, type ServiceDetail as Detail } from '../../lib/siteServices';
+import { AREA_PRICED, AUDIENCE_LABEL, SCOPE_PRICED, URGENCY_HINT, URGENCY_LABEL, normalizeDetail, type ServiceDetail as Detail } from '../../lib/siteServices';
 import { useAsync, useDocumentTitle } from '../../lib/useAsync';
 
 /** صفحة الخدمة: ما يشمله سعر الزيارة، الأسعار، المشكلات والأجهزة، ثم الحجز */
 export default function ServiceDetail() {
   const { slug = '' } = useParams();
+  const { search } = useLocation();
   const { data, error, loading, reload } = useAsync(() => api.get<Detail>(`/site-services/${encodeURIComponent(slug)}`).then(normalizeDetail), [slug], `service:${slug}`);
   const s = data?.service;
   useDocumentTitle(s?.name ?? 'الخدمات');
@@ -28,6 +30,8 @@ export default function ServiceDetail() {
     );
   }
   const audience = s.audiences.includes('HOME') ? 'HOME' : 'BUSINESS';
+  const heavy = s.devices.filter((d) => d.scopePriced);
+  const addons = s.devices.filter((d) => !d.scopePriced);
   return (
     <>
       <header className="border-b border-line bg-subtle">
@@ -36,7 +40,7 @@ export default function ServiceDetail() {
           <h1 className="max-w-4xl text-[1.75rem] leading-snug md:text-[2.375rem]">{s.name}</h1>
           <p className="mt-3 max-w-2xl text-[17px] text-muted">{s.summary}</p>
           <div className="mt-6 flex flex-wrap items-center gap-3">
-            <ButtonLink to={`/services/${s.slug}/book`} size="lg">
+            <ButtonLink to={`/services/${s.slug}/book${search}`} size="lg">
               {s.problems.length ? 'اختر المشكلة واحجز الزيارة' : 'احجز الزيارة'} <Icon name="arrowLeft" className="h-4 w-4" />
             </ButtonLink>
             <span className="text-sm text-muted">تعرف السعر النهائي قبل التأكيد</span>
@@ -116,18 +120,33 @@ export default function ServiceDetail() {
             </section>
           )}
 
-          {s.devices.length > 0 && (
+          {addons.length > 0 && (
             <section>
-              <h2 className="text-xl">الأجهزة والفحوصات الإضافية</h2>
-              <p className="mt-1 text-sm text-muted">تُضاف للزيارة نفسها برسومها فقط — بدون زيارة جديدة لكل جهاز.</p>
-              <ul className="mt-4 grid gap-3 sm:grid-cols-2">
-                {s.devices.map((d) => (
-                  <li key={d.id} className="card p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <h3 className="text-base leading-snug">{d.name}</h3>
-                      <span className="shrink-0 rounded-md bg-subtle px-2 py-0.5 text-sm font-semibold">{d.included ? 'مشمول' : `+ ${formatJOD(d.fee)}`}</span>
-                    </div>
-                    {d.description && <p className="mt-2 text-sm text-muted">{d.description}</p>}
+              <div className="flex flex-wrap items-end justify-between gap-2">
+                <div>
+                  <h2 className="text-xl">أجهزة الفحص والتشخيص الإضافية</h2>
+                  <p className="mt-1 text-sm text-muted">تختارها عند الحجز وتُضاف لنفس الزيارة برسومها فقط — بدون زيارة جديدة لكل جهاز.</p>
+                </div>
+                <span className="rounded-full bg-subtle px-3 py-1 text-sm font-semibold">{addons.length} فحص متاح</span>
+              </div>
+              <ul className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {addons.map((d) => (
+                  <li key={d.id}>
+                    <DeviceCard device={d} />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {heavy.length > 0 && (
+            <section className="rounded-2xl bg-inverse p-4 text-inverse-fg sm:p-6">
+              <h2 className="text-xl text-inverse-fg">المعدات الثقيلة للمنشآت التجارية</h2>
+              <p className="mt-1 text-sm text-inverse-fg/70">{AREA_PRICED} — نرسل لك عرض سعر مستقل بعد الكشف.</p>
+              <ul className="mt-5 grid grid-cols-1 gap-4 text-ink sm:grid-cols-2">
+                {heavy.map((d) => (
+                  <li key={d.id}>
+                    <DeviceCard device={d} />
                   </li>
                 ))}
               </ul>
@@ -144,6 +163,12 @@ export default function ServiceDetail() {
               <dl className="mt-3 divide-y divide-line text-[15px]">
                 <Row label="داخل عمّان" value={formatJOD(s.priceInside)} />
                 <Row label="خارج عمّان" value={formatJOD(s.priceOutside)} />
+              </dl>
+            )}
+            {(s.priceUrgent != null || s.priceEmergency != null) && !s.priceOnRequest && (
+              <dl className="mt-3 space-y-2 border-t border-line pt-3 text-[15px]">
+                {s.priceUrgent != null && <UrgencyRow tone="bg-warn" label={URGENCY_LABEL.URGENT} hint={URGENCY_HINT.URGENT} value={formatJOD(s.priceUrgent)} />}
+                {s.priceEmergency != null && <UrgencyRow tone="bg-danger" label={URGENCY_LABEL.EMERGENCY} hint={URGENCY_HINT.EMERGENCY} value={formatJOD(s.priceEmergency)} />}
               </dl>
             )}
             {s.discountPercent > 0 && <p className="mt-2 text-sm font-semibold text-success">خصم {s.discountPercent}% على سعر الزيارة حاليًا</p>}
@@ -171,6 +196,20 @@ function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between py-2.5">
       <dt className="text-muted">{label}</dt>
+      <dd className="font-display font-semibold">{value}</dd>
+    </div>
+  );
+}
+
+function UrgencyRow({ label, hint, value, tone }: { label: string; hint: string; value: string; tone: string }) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <dt>
+        <span className="flex items-center gap-1.5 font-semibold">
+          <span className={`h-2 w-2 rounded-full ${tone}`} /> {label}
+        </span>
+        <span className="block text-[13px] text-muted">{hint}</span>
+      </dt>
       <dd className="font-display font-semibold">{value}</dd>
     </div>
   );

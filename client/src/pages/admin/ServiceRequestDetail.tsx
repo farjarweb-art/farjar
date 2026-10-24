@@ -6,7 +6,7 @@ import { PriceSummary } from '../../components/services/PriceSummary';
 import { Button, ButtonLink, Checkbox, ErrorState, Icon, Input, Select, Tag, Textarea } from '../../components/ui';
 import { api, fileHref } from '../../lib/api';
 import { displayPhone, formatDate, formatDateShort, formatJOD } from '../../lib/format';
-import { POLICY_TEXT, QUOTE_STATUS_LABEL, QUOTE_TITLES, isDocumentMedia, TIER_LABEL, statusTone, type QuoteItem, type RequestCore, type RequestMedia, type ServiceQuote, type SrStatus } from '../../lib/siteServices';
+import { POLICY_TEXT, QUOTE_STATUS_LABEL, QUOTE_TITLES, URGENCY_LABEL, isDocumentMedia, mapsLink, TIER_LABEL, statusTone, type QuoteItem, type RequestCore, type RequestMedia, type ServiceQuote, type SrStatus } from '../../lib/siteServices';
 import { useDocumentTitle } from '../../lib/useAsync';
 
 type Detail = RequestCore & {
@@ -216,6 +216,8 @@ export default function ServiceRequestDetail() {
                   </a>,
                 ],
                 ['نوع العميل', `${r.clientTypeLabel} — ${r.propertyType}`],
+                r.ownership && ['صفة العميل', r.ownership],
+                r.urgency && r.urgency !== 'NORMAL' && ['الأولوية', <Tag tone={r.urgency === 'EMERGENCY' ? 'danger' : 'sand'}>⚡ {URGENCY_LABEL[r.urgency]}</Tag>],
                 ['المنطقة', `${r.zoneName} (${TIER_LABEL[r.tier]}) — ${r.area}`],
                 ['العنوان', r.address],
                 mapUrl && ['الخريطة', <a href={mapUrl} target="_blank" rel="noopener noreferrer" className="underline-offset-4 hover:underline">فتح الموقع</a>],
@@ -276,6 +278,34 @@ function MediaGrid({ items, onDelete }: { items: RequestMedia[]; onDelete?: (m: 
 function ReportEditor({ request: r, onSaved }: { request: Detail; onSaved: () => void }) {
   const m = useMutation();
   const [v, setV] = useState({ findings: '', devicesUsed: '', recommendations: '', repairsNeeded: '' });
+  const [gps, setGps] = useState<{ gpsLat: number; gpsLng: number; gpsAccuracy: number | null; gpsAt: string } | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [gpsError, setGpsError] = useState<string | null>(null);
+  useEffect(() => {
+    const g = r.report;
+    setGps(g?.gpsLat != null && g.gpsLng != null ? { gpsLat: g.gpsLat, gpsLng: g.gpsLng, gpsAccuracy: g.gpsAccuracy ?? null, gpsAt: g.gpsAt ?? new Date().toISOString() } : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [r.id, r.report?.updatedAt]);
+  /** الفني في الموقع: يسجل إحداثيات جهازه لتظهر في التقرير النهائي */
+  function locate() {
+    if (!navigator.geolocation) {
+      setGpsError('المتصفح لا يدعم تحديد الموقع');
+      return;
+    }
+    setLocating(true);
+    setGpsError(null);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setGps({ gpsLat: Number(pos.coords.latitude.toFixed(6)), gpsLng: Number(pos.coords.longitude.toFixed(6)), gpsAccuracy: Math.round(pos.coords.accuracy), gpsAt: new Date().toISOString() });
+        setLocating(false);
+      },
+      (e) => {
+        setGpsError(e.code === e.PERMISSION_DENIED ? 'اسمح للمتصفح بالوصول للموقع ثم حاول مرة أخرى' : 'تعذر تحديد الموقع — تأكد من تشغيل GPS');
+        setLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
+    );
+  }
   useEffect(() => {
     setV({
       findings: r.report?.findings ?? '',
@@ -288,7 +318,7 @@ function ReportEditor({ request: r, onSaved }: { request: Detail; onSaved: () =>
   const photos = r.media.filter((x) => x.purpose === 'report');
 
   async function save(publish?: boolean) {
-    if (await m.run(publish ? 'publish' : 'draft', () => api.put(`/admin/service-requests/${r.id}/report`, { ...v, ...(publish ? { publish: true } : {}) }), publish ? 'تم إرسال التقرير للعميل' : 'تم حفظ التقرير')) onSaved();
+    if (await m.run(publish ? 'publish' : 'draft', () => api.put(`/admin/service-requests/${r.id}/report`, { ...v, ...(gps ?? { gpsLat: null, gpsLng: null, gpsAccuracy: null, gpsAt: null }), ...(publish ? { publish: true } : {}) }), publish ? 'تم إرسال التقرير للعميل' : 'تم حفظ التقرير')) onSaved();
   }
   async function upload(files: FileList | null) {
     if (!files?.length) return;
@@ -310,6 +340,39 @@ function ReportEditor({ request: r, onSaved }: { request: Detail; onSaved: () =>
         <Input label="الفحوصات والأجهزة المستخدمة" value={v.devicesUsed} maxLength={2000} onChange={(e) => setV({ ...v, devicesUsed: e.target.value })} />
         <Textarea label="التوصيات المقترحة" rows={3} value={v.recommendations} maxLength={10000} onChange={(e) => setV({ ...v, recommendations: e.target.value })} />
         <Textarea label="الأعمال التي تحتاج إلى إصلاح" rows={3} value={v.repairsNeeded} maxLength={10000} onChange={(e) => setV({ ...v, repairsNeeded: e.target.value })} />
+        <section className="rounded-xl border border-line p-3">
+          <span className="label flex items-center gap-1.5">
+            <Icon name="gps" className="h-4 w-4" /> إحداثيات موقع الفحص (تظهر في التقرير النهائي)
+          </span>
+          {gps ? (
+            <p className="text-sm">
+              <a href={mapsLink(gps.gpsLat, gps.gpsLng)} target="_blank" rel="noopener noreferrer" className="ltr font-semibold underline-offset-4 hover:underline">
+                {gps.gpsLat.toFixed(6)}, {gps.gpsLng.toFixed(6)}
+              </a>
+              {gps.gpsAccuracy != null && <span className="text-muted"> · دقة ±{gps.gpsAccuracy} م</span>}
+              <span className="text-muted"> · {formatDate(gps.gpsAt, true)}</span>
+            </p>
+          ) : (
+            <p className="text-sm text-muted">لم تُسجَّل بعد — سجّلها وأنت في موقع العقار.</p>
+          )}
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" loading={locating} onClick={locate}>
+              <Icon name="navigation" className="h-4 w-4" /> {gps ? 'إعادة تسجيل موقعي الآن' : 'تسجيل موقعي الآن (GPS)'}
+            </Button>
+            {r.lat != null && r.lng != null && (
+              <Button size="sm" variant="ghost" onClick={() => setGps({ gpsLat: r.lat!, gpsLng: r.lng!, gpsAccuracy: null, gpsAt: new Date().toISOString() })}>
+                استخدام موقع العميل على الخريطة
+              </Button>
+            )}
+            {gps && (
+              <Button size="sm" variant="ghost" onClick={() => setGps(null)}>
+                مسح
+              </Button>
+            )}
+          </div>
+          {gpsError && <p className="mt-1.5 text-sm text-danger">{gpsError}</p>}
+          <p className="mt-1.5 text-xs text-muted">احفظ التقرير بعد تسجيل الموقع.</p>
+        </section>
         <div>
           <span className="label">صور التقرير</span>
           {photos.length > 0 && <MediaGrid items={photos} onDelete={remove} />}

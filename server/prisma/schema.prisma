@@ -2121,6 +2121,9 @@ model SiteService {
   /// المدة التقديرية بالدقائق — لتنظيم المواعيد فقط، لا تؤثر على السعر
   durationMinutes Int                  @default(60)
   visitFeePolicy  VisitFeePolicy       @default(SEPARATE)
+  /// زيارة عاجلة / طارئة بسعر ثابت (فارغ = لا تظهر خيارات الأولوية)
+  priceUrgent     Decimal?             @db.Decimal(10, 3)
+  priceEmergency  Decimal?             @db.Decimal(10, 3)
   /// شروط تظهر للعميل قبل التأكيد (إضافة على الشروط العامة)
   terms           String               @default("")
   /// قسم رئيسي يُعرض بشكل مميز (مثل قسم التسربات والرطوبة)
@@ -2167,28 +2170,45 @@ model ServiceProblem {
 
 /// الأجهزة والفحوصات الإضافية (تُربط بالخدمات وبالمشكلات)
 model ServiceDevice {
-  id          String              @id @default(cuid())
-  name        String
-  description String              @default("")
+  id            String              @id @default(cuid())
+  name          String
+  description   String              @default("")
   /// الرسوم الافتراضية لإضافة الجهاز للزيارة
-  fee         Decimal             @db.Decimal(10, 3)
-  sortOrder   Int                 @default(0)
-  active      Boolean             @default(true)
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
-  services    ServiceDeviceLink[]
-  problems    ServiceProblem[]
+  fee           Decimal             @db.Decimal(10, 3)
+  /// معرّف ثابت للجهاز (للتحديثات من الكود) مثل thermal_inspection
+  code          String?             @unique
+  /// صورة الجهاز (رسم مرفق أو صورة يرفعها المدير)
+  imageUrl      String?
+  imagePublicId String?
+  /// آلية العمل كما تظهر للعميل
+  mechanism     String              @default("")
+  /// الفوائد (سطر لكل فائدة)
+  benefits      String              @default("")
+  /// معدات ثقيلة: تُسعّر حسب المساحة ونطاق العمل
+  scopePriced   Boolean             @default(false)
+  /// يُضاف تلقائيًا (مجانًا) عند اختيار هذا الجهاز الأب — مثل خطافات المنظار
+  parentId      String?
+  parent        ServiceDevice?      @relation("DeviceAccessory", fields: [parentId], references: [id], onDelete: SetNull)
+  accessories   ServiceDevice[]     @relation("DeviceAccessory")
+  sortOrder     Int                 @default(0)
+  active        Boolean             @default(true)
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  services      ServiceDeviceLink[]
+  problems      ServiceProblem[]
 }
 
 model ServiceDeviceLink {
-  serviceId String
-  deviceId  String
+  serviceId   String
+  deviceId    String
   /// مشمول في سعر الزيارة بلا رسوم
-  included  Boolean       @default(false)
+  included    Boolean       @default(false)
   /// رسوم خاصة بهذه الخدمة (فارغ = رسوم الجهاز الافتراضية)
-  fee       Decimal?      @db.Decimal(10, 3)
-  service   SiteService   @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  device    ServiceDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  fee         Decimal?      @db.Decimal(10, 3)
+  /// يُضاف تلقائيًا لكل حجز لهذه الخدمة (مثل أداة قياس التشققات المجانية)
+  autoInclude Boolean       @default(false)
+  service     SiteService   @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  device      ServiceDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
 
   @@id([serviceId, deviceId])
 }
@@ -2201,6 +2221,8 @@ model ServiceZone {
   travelFee        Decimal   @default(0) @db.Decimal(10, 3)
   /// تحتاج موافقة الإدارة قبل التأكيد (منطقة بعيدة)
   requiresApproval Boolean   @default(false)
+  /// المناطق داخل المحافظة (يختار منها العميل)
+  regions          String[]  @default([])
   sortOrder        Int       @default(0)
   active           Boolean   @default(true)
   createdAt        DateTime  @default(now())
@@ -2253,6 +2275,9 @@ model ServiceRequest {
   total           Decimal              @db.Decimal(10, 3)
   visitFeePolicy  VisitFeePolicy
   needsApproval   Boolean              @default(false)
+  /// صفة العميل: مالك، مستأجر، مشتري محتمل…
+  ownership       String?
+  urgency         Urgency              @default(NORMAL)
   termsAcceptedAt DateTime
   technicianId    String?
   adminNotes      String?
@@ -2312,6 +2337,11 @@ model ServiceReport {
   devicesUsed     String         @default("")
   recommendations String         @default("")
   repairsNeeded   String         @default("")
+  /// إحداثيات موقع الفحص (يسجلها الفني في الموقع)
+  gpsLat          Float?
+  gpsLng          Float?
+  gpsAccuracy     Float?
+  gpsAt           DateTime?
   /// منشور للعميل
   published       Boolean        @default(false)
   publishedAt     DateTime?

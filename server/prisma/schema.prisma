@@ -2204,6 +2204,8 @@ model ServiceDevice {
   benefits      String              @default("")
   /// معدات ثقيلة: تُسعّر حسب المساحة ونطاق العمل
   scopePriced   Boolean             @default(false)
+  /// باقة "فحص أجهزة شامل": تشمل كل أجهزة الفحص بسعر واحد
+  coversAll     Boolean             @default(false)
   /// يُضاف تلقائيًا (مجانًا) عند اختيار هذا الجهاز الأب — مثل خطافات المنظار
   parentId      String?
   parent        ServiceDevice?      @relation("DeviceAccessory", fields: [parentId], references: [id], onDelete: SetNull)

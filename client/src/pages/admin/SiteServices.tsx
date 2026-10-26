@@ -49,6 +49,7 @@ type Device = {
   mechanism: string;
   benefits: string;
   scopePriced: boolean;
+  coversAll?: boolean;
   parentId: string | null;
 };
 type Zone = { id: string; name: string; tier: PriceTier; travelFee: number; requiresApproval: boolean; regions: string[]; sortOrder: number; active: boolean };
@@ -397,7 +398,7 @@ function DevicesTab({ c, canEdit, reload }: TabProps) {
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block font-semibold">
-                  {d.name} {!d.active && <Tag>موقوف</Tag>} {d.scopePriced && <Tag tone="dark">معدات ثقيلة</Tag>}
+                  {d.name} {!d.active && <Tag>موقوف</Tag>} {d.scopePriced && <Tag tone="dark">معدات ثقيلة</Tag>} {d.coversAll && <Tag tone="brand">باقة شاملة</Tag>}
                 </span>
                 <span className="mt-0.5 block truncate text-sm text-muted">{d.parentId ? `ملحق مجاني مع: ${nameOf(d.parentId)}` : d.mechanism || d.description}</span>
               </span>
@@ -412,8 +413,8 @@ function DevicesTab({ c, canEdit, reload }: TabProps) {
           canEdit={canEdit}
           initial={
             edit === 'new'
-              ? { name: '', description: '', fee: 0, sortOrder: 0, active: true, code: '', mechanism: '', benefits: '', scopePriced: false, parentId: '' }
-              : { ...edit, code: edit.code ?? '', parentId: edit.parentId ?? '' }
+              ? { name: '', description: '', fee: 0, sortOrder: 0, active: true, code: '', mechanism: '', benefits: '', scopePriced: false, coversAll: false, parentId: '' }
+              : { ...edit, code: edit.code ?? '', parentId: edit.parentId ?? '', coversAll: !!edit.coversAll }
           }
           path={edit === 'new' ? null : `/admin/site-services/devices/${edit.id}`}
           create="/admin/site-services/devices"
@@ -444,6 +445,9 @@ function DevicesTab({ c, canEdit, reload }: TabProps) {
                 <Input label="الرمز (اختياري)" hint="بالإنجليزية مثل thermal_inspection" className="ltr text-start" value={v.code} maxLength={60} onChange={(e) => set('code', e.target.value)} error={fe('code')} />
               </div>
               <div className="flex flex-wrap gap-6">
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch checked={v.coversAll} onChange={(x) => set('coversAll', x)} label="باقة فحص أجهزة شامل" /> باقة «فحص أجهزة شامل» (تشمل كل الأجهزة بسعرها)
+                </label>
                 <label className="flex items-center gap-2 text-sm">
                   <Switch checked={v.scopePriced} onChange={(x) => set('scopePriced', x)} label="معدات ثقيلة تُسعّر حسب المساحة" /> معدات ثقيلة (السعر حسب المساحة ونطاق العمل)
                 </label>

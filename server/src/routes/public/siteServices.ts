@@ -159,6 +159,7 @@ siteServicesRouter.get(
               mechanism: d.mechanism,
               benefits: d.benefits.split('\n').map((x) => x.trim()).filter(Boolean),
               scopePriced: d.scopePriced,
+              coversAll: d.coversAll,
               parentId: d.parentId,
               autoInclude: !!l?.autoInclude,
               accessoryIds: d.accessories.map((x) => x.id),
@@ -320,7 +321,7 @@ siteServicesRouter.post(
       return r;
     });
 
-    const text = serviceRequestMessage({ ...created, total: price.total, services: price.services, problems: price.problems, devices: price.devices, extra, scopePriced: price.hasScopePricing, urgency: price.urgency });
+    const text = serviceRequestMessage({ ...created, total: price.total, services: price.services, problems: price.problems, devices: price.devices.filter((d) => !d.inPackage), extra, scopePriced: price.hasScopePricing, urgency: price.urgency });
     const wa = await notifyAdmin(text, { entityType: 'service_request', entityId: created.id });
     emitAdmin({ type: 'service_request.created', id: created.id, title: `طلب معاينة #${created.number} — ${price.services[0].name}` });
     await audit({ actorType: 'customer', actorId: req.auth!.sub, action: 'create', entity: 'service_request', entityId: created.id });

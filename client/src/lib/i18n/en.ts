@@ -4343,6 +4343,22 @@ export const EN_TEXT: Record<string, string> = {
   "تُسجّل هنا رموز التحقق ورسائل استعادة كلمة المرور: ما أُرسل وما فشل وسببه.": "Verification codes and password-recovery emails are logged here: what was sent, what failed, and why.",
   "تنبيه: بعض الرسائل قد لا تصل": "Warning: some emails may not arrive",
   "تغيير الخدمة (عرض كل الخدمات)": "Change service (show all services)",
+  "الأوفر": "Best value",
+  "فحص شامل — فحص أجهزة شامل": "Comprehensive inspection — all devices",
+  "كل أجهزة الفحص في زيارة واحدة بسعر واحد.": "All inspection devices in one visit for one price.",
+  "تمت الإضافة": "Added",
+  "أضف الفحص الشامل": "Add comprehensive inspection",
+  "مشمول في فحص الأجهزة الشامل ✓": "Included in the comprehensive inspection ✓",
+  "فحص أجهزة شامل — كل أجهزة الفحص": "Comprehensive device inspection — all devices",
+  "باقة شاملة": "Full package",
+  "باقة «فحص أجهزة شامل» (تشمل كل الأجهزة بسعرها)": "“Comprehensive device inspection” package (covers all devices for its price)",
+  "فحص أجهزة شامل — كل أجهزة الفحص في زيارة واحدة": "Comprehensive device inspection — all inspection devices in one visit",
+  "باقة شاملة بسعر واحد بدل إضافة كل جهاز وحده.": "One package price instead of adding each device separately.",
+  "يحضر الفني كل أجهزة الفحص المتاحة ويستخدم منها ما يلزم حسب حالة الموقع: التصوير الحراري، كشف التسريبات، اختبارات الضغط، التنظير، قياس الرطوبة، فحوصات الإنشاء والكهرباء.": "The technician brings all available inspection devices and uses what the site needs: thermal imaging, leak detection, pressure tests, endoscopy, moisture measurement, structural and electrical tests.",
+  "كل أجهزة الفحص بسعر واحد أوفر من إضافتها منفردة": "All inspection devices for one price — cheaper than adding them separately",
+  "تشخيص كامل للعقار في زيارة واحدة دون زيارات إضافية": "Full property diagnosis in a single visit, no extra visits",
+  "لا داعي لمعرفة الجهاز المناسب — الفني يختار حسب الحالة": "No need to know which device fits — the technician chooses on site",
+  "تقرير فني شامل بقراءات كل الفحوصات": "A full technical report with readings from every test",
 };
 
 /** نصوص فيها قيم متغيرة: {0} {1} … */
@@ -4720,4 +4736,6 @@ export const EN_PATTERNS: [string, string][] = [
   ["المخرجات: {0}", "Deliverables: {0}"],
   ["({0} محاولات)", "({0} attempts)"],
   ["اختر الخدمة — {0}", "Choose the service — {0}"],
+  ["يشمل {0} جهاز فحص", "Includes {0} inspection devices"],
+  ["يشمل كل أجهزة الفحص ({0} جهاز)", "Includes all inspection devices ({0})"],
 ];

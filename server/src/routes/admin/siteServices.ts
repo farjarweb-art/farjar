@@ -250,6 +250,8 @@ const deviceInput = z.object({
   /** سطر لكل فائدة */
   benefits: text(2000).default(''),
   scopePriced: z.boolean().default(false),
+  /** باقة فحص أجهزة شامل (تشمل كل الأجهزة بسعر واحد) */
+  coversAll: z.boolean().default(false),
   /** ملحق مجاني يُضاف مع جهاز أب (مثل خطافات المنظار) */
   parentId: z.string().max(40).nullable().optional(),
   sortOrder: z.coerce.number().int().min(0).max(10_000).default(0),

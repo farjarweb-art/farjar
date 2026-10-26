@@ -241,3 +241,22 @@ describe('الحجز الموحد: الموقع والتواصل والمواع�
     expect((await request(app).get('/api/v1/site-services/map-link').query({ u: 'https://example.com/whatever' })).status).toBe(400);
   });
 });
+
+describe('فحص أجهزة شامل (باقة كل الأجهزة)', () => {
+  it('سعر واحد يشمل كل الأجهزة، والأجهزة الفردية معه لا تُحسب مرتين، والسعر يُعدّل من الإدارة', async () => {
+    const pkg = await prisma.serviceDevice.findUniqueOrThrow({ where: { code: 'full_device_package' } });
+    expect(pkg.coversAll).toBe(true);
+    const thermal = await prisma.serviceDevice.findUniqueOrThrow({ where: { code: 'thermal_inspection' } });
+    const res = await quote({ serviceIds: [cracks.service.id], zoneId: amman, deviceIds: [pkg.id, thermal.id] });
+    expect(res.status).toBe(200);
+    // 35 زيارة + 120 الباقة (الحراري ضمنها) + بند "يشمل" + أداة التشققات المجانية
+    expect(res.body.data.total).toBe(155);
+    expect(res.body.data.lines.some((l: { label: string }) => l.label.includes('يشمل كل أجهزة الفحص'))).toBe(true);
+    expect(res.body.data.devices.find((d: { id: string }) => d.id === thermal.id)).toMatchObject({ fee: 0, inPackage: true });
+    // المدير يعدّل سعر الباقة
+    expect((await admin.patch(`/api/v1/admin/site-services/devices/${pkg.id}`).send({ fee: 99 })).status).toBe(200);
+    expect((await quote({ serviceIds: [cracks.service.id], zoneId: amman, deviceIds: [pkg.id] })).body.data.total).toBe(134);
+    const d = await detail('cracks-inspection');
+    expect(d.service.devices.find((x) => x.id === pkg.id)).toMatchObject({ fee: 99 });
+  });
+});

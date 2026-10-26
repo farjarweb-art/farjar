@@ -494,3 +494,24 @@ export async function seedInspectionV3(prisma: PrismaClient) {
   await prisma.counter.create({ data: { key: marker, value: 1 } });
   console.log('✓ الحجز الموحد: أجهزة الفحص الشامل');
 }
+
+/** v4 — باقة "فحص أجهزة شامل": كل أجهزة الفحص في زيارة واحدة بسعر مستقل (يُعدّل من لوحة التحكم) */
+export async function seedInspectionV4(prisma: PrismaClient) {
+  const marker = 'seed_inspection_v4';
+  if (await prisma.counter.findUnique({ where: { key: marker } })) return;
+  const data = {
+    name: 'فحص أجهزة شامل — كل أجهزة الفحص في زيارة واحدة',
+    description: 'باقة شاملة بسعر واحد بدل إضافة كل جهاز وحده.',
+    mechanism: 'يحضر الفني كل أجهزة الفحص المتاحة ويستخدم منها ما يلزم حسب حالة الموقع: التصوير الحراري، كشف التسريبات، اختبارات الضغط، التنظير، قياس الرطوبة، فحوصات الإنشاء والكهرباء.',
+    benefits: ['كل أجهزة الفحص بسعر واحد أوفر من إضافتها منفردة', 'تشخيص كامل للعقار في زيارة واحدة دون زيارات إضافية', 'لا داعي لمعرفة الجهاز المناسب — الفني يختار حسب الحالة', 'تقرير فني شامل بقراءات كل الفحوصات'].join('\n'),
+    fee: D(120),
+    imageUrl: IMG('full-device-package'),
+    coversAll: true,
+    sortOrder: -1,
+    active: true,
+  };
+  const existing = await prisma.serviceDevice.findUnique({ where: { code: 'full_device_package' } });
+  if (!existing) await prisma.serviceDevice.create({ data: { ...data, code: 'full_device_package' } });
+  await prisma.counter.create({ data: { key: marker, value: 1 } });
+  console.log('✓ باقة فحص الأجهزة الشامل');
+}

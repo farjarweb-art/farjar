@@ -47,7 +47,7 @@ export function urgencyPrice(s: { priceUrgent: unknown; priceEmergency: unknown 
   return v == null ? null : Number(String(v));
 }
 
-type DeviceRow = { id: string; name: string; fee: { toString(): string }; active: boolean; parentId: string | null; scopePriced: boolean; accessories: { id: string; name: string }[] };
+type DeviceRow = { id: string; name: string; fee: { toString(): string }; active: boolean; parentId: string | null; scopePriced: boolean; coversAll: boolean; accessories: { id: string; name: string }[] };
 type LinkRow = { deviceId: string; included: boolean; fee: { toString(): string } | null; autoInclude: boolean };
 
 /**
@@ -144,14 +144,18 @@ export async function priceVisit(input: PricingInput) {
     if (s.discountPercent > 0) lines.push({ kind: 'discount', label: `خصم ${s.discountPercent}% على ${s.name}`, amount: -r3((price * s.discountPercent) / 100) });
   }
 
-  type ChosenDevice = { id: string; name: string; fee: number; included: boolean; auto?: boolean; scopePriced?: boolean };
+  type ChosenDevice = { id: string; name: string; fee: number; included: boolean; auto?: boolean; scopePriced?: boolean; inPackage?: boolean };
   const devices: ChosenDevice[] = [];
   const addFree = (d: { id: string; name: string }) => {
     if (devices.some((x) => x.id === d.id)) return;
     lines.push({ kind: 'device', label: d.name.includes('🎁') ? d.name : `${d.name} — ${FREE_ADDON}`, amount: 0 });
     devices.push({ id: d.id, name: d.name, fee: 0, included: true, auto: true });
   };
-  for (const id of deviceIds) {
+  // باقة "فحص أجهزة شامل": سعر واحد يشمل كل أجهزة الفحص — الأجهزة الفردية المختارة معها تدخل ضمنها
+  const pkg = options.find((o) => o.device.coversAll && deviceIds.includes(o.device.id));
+  const covered = pkg ? options.filter((o) => !o.device.coversAll && !o.device.scopePriced) : [];
+  const chosenIds = pkg ? deviceIds.filter((id) => id === pkg.device.id || options.find((o) => o.device.id === id)!.device.scopePriced) : deviceIds;
+  for (const id of chosenIds) {
     const { device: d, link } = options.find((o) => o.device.id === id)!;
     const included = !!link?.included;
     if (d.scopePriced) {
@@ -163,6 +167,13 @@ export async function priceVisit(input: PricingInput) {
       devices.push({ id, name: d.name, fee: r3(fee), included });
     }
     for (const acc of d.accessories) addFree(acc);
+    if (d.coversAll) {
+      lines.push({ kind: 'device', label: `يشمل كل أجهزة الفحص (${covered.length} جهاز)`, amount: 0 });
+      for (const o of covered) {
+        devices.push({ id: o.device.id, name: o.device.name, fee: 0, included: true, inPackage: true });
+        for (const acc of o.device.accessories) if (!devices.some((x) => x.id === acc.id)) devices.push({ id: acc.id, name: acc.name, fee: 0, included: true, inPackage: true });
+      }
+    }
   }
   // إضافات مجانية مع كل حجز لهذه الخدمة (مثل أداة قياس عرض التشققات)
   for (const l of main.devices.filter((x) => x.autoInclude && x.device.active)) addFree(l.device);

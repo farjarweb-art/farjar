@@ -120,6 +120,19 @@ function SystemStatus({ system }: { system: SettingsResponse['system'] }) {
             : 'لتفعيل النشرة البريدية واستعادة كلمة المرور اضبط SMTP_USER و SMTP_PASS (Gmail App Password) على الخادم.'}
         </p>
       </div>
+      {system.email && system.mailFromFreeDomain && (
+        <div className="card border-warn/60 p-4 sm:col-span-2 lg:col-span-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="font-semibold">تنبيه: بعض الرسائل قد لا تصل</p>
+            <Tag tone="danger">المرسل: <span className="ltr">{system.mailFrom}</span></Tag>
+          </div>
+          <p className="mt-1 text-sm text-muted">
+            الرسائل تُرسل عبر {system.mailProvider === 'brevo' ? 'Brevo' : 'Resend'} باسم عنوان Gmail مجاني، فترفضها Gmail وOutlook أحيانًا أو تضعها في البريد غير الهام (فشل التحقق DMARC).
+            الحل: وثّق دومين الموقع <span className="ltr">farjarcorp.online</span> في {system.mailProvider === 'brevo' ? 'Brevo (Senders, Domains & Dedicated IPs ← Domains)' : 'Resend'} وأضف سجلات DNS المطلوبة، ثم اضبط على الخادم{' '}
+            <span className="ltr font-mono">MAIL_FROM_EMAIL=no-reply@farjarcorp.online</span>. تابع ما أُرسل وما فشل من «السجلات ← سجل البريد».
+          </p>
+        </div>
+      )}
     </div>
   );
 }

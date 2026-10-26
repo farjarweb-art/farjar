@@ -62,7 +62,7 @@ export async function issueEmailOtp(input: { purpose: OtpPurpose; subject: OtpSu
 
   const mail = await renderOtpEmail({ name: to.name, code, purpose, minutes: OTP_MINUTES, requestedAt: now, ip: input.ip });
   try {
-    await sendTransactional(to.email, mail);
+    await sendTransactional(to.email, mail, 'otp');
   } catch (e) {
     // فشل الإرسال: لا نترك رمزًا صالحًا لم يصل
     await prisma.emailOtp.update({ where: { id: otp.id }, data: { consumedAt: new Date() } });

@@ -4327,6 +4327,22 @@ export const EN_TEXT: Record<string, string> = {
   "لا توجد مواعيد — أضف موعدًا.": "No slots — add one.",
   "بدون واتساب": "No WhatsApp",
   "أرقام التواصل": "Contact numbers",
+  "اختر الفحص أو الخدمة": "Choose the inspection or service",
+  "مثل فحص الماء والتسربات، فحص العقار قبل الشراء، أو الفحص الشامل — ثم أضف الأجهزة التي تريدها.": "e.g. water & leak inspection, pre-purchase inspection, or a comprehensive inspection — then add the devices you want.",
+  "التفاصيل الكاملة": "Full details",
+  "أجهزة أخرى يمكنك إضافتها لنفس الزيارة": "Other devices you can add to the same visit",
+  "اختر أي جهاز تريد أن نفحص لك به — الأجهزة المخصصة لهذه الخدمة أولًا ثم بقية الأجهزة المتاحة. اضغط «التفاصيل» لقراءة آلية عمل الجهاز وفائدته الفنية.": "Choose any device you want us to inspect with — devices for this service first, then all other available devices. Tap “Details” to read how each works and its technical benefit.",
+  "سجل البريد": "Email log",
+  "رسائل واتساب والبريد المرسلة وسجل عمليات الإدارة": "Sent WhatsApp and email messages and the admin activity log",
+  "رمز تحقق": "Verification code",
+  "استعادة كلمة المرور": "Password recovery",
+  "رسالة خدمية": "Service email",
+  "فشلت": "Failed",
+  "الموضوع": "Subject",
+  "لا توجد رسائل بريد بعد": "No emails yet",
+  "تُسجّل هنا رموز التحقق ورسائل استعادة كلمة المرور: ما أُرسل وما فشل وسببه.": "Verification codes and password-recovery emails are logged here: what was sent, what failed, and why.",
+  "تنبيه: بعض الرسائل قد لا تصل": "Warning: some emails may not arrive",
+  "تغيير الخدمة (عرض كل الخدمات)": "Change service (show all services)",
 };
 
 /** نصوص فيها قيم متغيرة: {0} {1} … */
@@ -4699,4 +4715,9 @@ export const EN_PATTERNS: [string, string][] = [
   ["تظهر هنا الأجهزة الخاصة بـ «{0}». اضغط «التفاصيل» لقراءة آلية عمل الجهاز وفائدته الفنية.", "Devices for “{0}” are shown here. Tap “Details” to read how each works and its technical benefit."],
   ["خدمة «{0}» غير متاحة لـ {1}. اختر من الخدمات التالية.", "“{0}” isn't available for {1}. Choose from the services below."],
   ["حذف موعد {0}", "Delete slot {0}"],
+  ["أجهزة مخصصة لـ «{0}»", "Devices for “{0}”"],
+  ["ما تشمله زيارة «{0}»", "What the “{0}” visit includes"],
+  ["المخرجات: {0}", "Deliverables: {0}"],
+  ["({0} محاولات)", "({0} attempts)"],
+  ["اختر الخدمة — {0}", "Choose the service — {0}"],
 ];

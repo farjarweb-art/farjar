@@ -76,7 +76,7 @@ function Hero({ services, loading }: { services: ServiceCard[]; loading: boolean
             كشف تسربات ورطوبة، فحص عقارات ومنشآت صناعية، دهان وبناء وأعمال معدنية — اختر الخدمة، اعرف السعر النهائي قبل التأكيد، واختر موعدك بنفسك.
           </p>
           <div className="anim-rise mt-8 flex flex-wrap gap-3 [animation-delay:180ms]">
-            <Link to="/services" className="inline-flex h-12 items-center gap-2 rounded-lg bg-primary px-6 font-semibold text-primary-fg shadow-[inset_0_-2px_0_rgb(0_0_0/0.12)] transition-colors hover:bg-primary-hover active:translate-y-px">
+            <Link to="/book" className="inline-flex h-12 items-center gap-2 rounded-lg bg-primary px-6 font-semibold text-primary-fg shadow-[inset_0_-2px_0_rgb(0_0_0/0.12)] transition-colors hover:bg-primary-hover active:translate-y-px">
               <Icon name="calendar" className="h-4 w-4" /> احجز الآن
             </Link>
             <a href="#all-bookings" className="inline-flex h-12 items-center gap-2 rounded-lg border border-inverse-fg/20 px-5 font-semibold text-inverse-fg transition-colors hover:border-inverse-fg/50">
@@ -317,7 +317,7 @@ function HowItWorks() {
           ])}
         </ol>
         <div className="mt-10 text-center">
-          <Link to="/services" className="inline-flex h-12 items-center gap-2 rounded-lg bg-primary px-6 font-semibold text-primary-fg transition-colors hover:bg-primary-hover">
+          <Link to="/book" className="inline-flex h-12 items-center gap-2 rounded-lg bg-primary px-6 font-semibold text-primary-fg transition-colors hover:bg-primary-hover">
             ابدأ الحجز <Icon name="arrowLeft" className="h-4 w-4" />
           </Link>
         </div>

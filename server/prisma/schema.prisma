@@ -1109,6 +1109,24 @@ model Setting {
   updatedAt DateTime @updatedAt
 }
 
+/// سجل رسائل البريد الخدمية (رموز التحقق، إعادة التعيين…) — لمعرفة ما وصل وما فشل
+model EmailLog {
+  id        String   @id @default(cuid())
+  to        String
+  subject   String
+  /// otp | reset | other
+  kind      String
+  provider  String
+  /// SENT | FAILED
+  status    String
+  attempts  Int      @default(1)
+  error     String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([to])
+}
+
 model WhatsAppLog {
   id         String          @id @default(cuid())
   to         String

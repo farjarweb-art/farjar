@@ -47,21 +47,38 @@ export function urgencyPrice(s: { priceUrgent: unknown; priceEmergency: unknown 
   return v == null ? null : Number(String(v));
 }
 
+type DeviceRow = { id: string; name: string; fee: { toString(): string }; active: boolean; parentId: string | null; scopePriced: boolean; accessories: { id: string; name: string }[] };
+type LinkRow = { deviceId: string; included: boolean; fee: { toString(): string } | null; autoInclude: boolean };
+
 /**
- * الأجهزة التي يختارها العميل لهذه الخدمة: كل الأجهزة المربوطة بها (كهرباء ← أجهزة الكهرباء، تسربات ← أجهزة المياه، فحص شامل ← كل الأجهزة).
- * ربط المشكلات بالأجهزة يحدد "المقترح" فقط. الملحقات (لها جهاز أب) والإضافات التلقائية لا تُختار — تُضاف وحدها مجانًا.
+ * الأجهزة التي يختار منها العميل في أي حجز: كل الأجهزة الفعالة، المربوطة بالخدمة أولًا ثم البقية.
+ * السعر: رسوم الخدمة الخاصة إن كان الجهاز مربوطًا بها، وإلا رسوم الجهاز العامة.
+ * الملحقات (لها جهاز أب) والإضافات التلقائية لا تُختار — تُضاف وحدها مجانًا. المعدات الثقيلة لخدمات المنشآت فقط.
  */
-export function allowedDeviceIds(service: { devices: { deviceId: string; autoInclude?: boolean; device: { active: boolean; parentId?: string | null } }[] }) {
-  return new Set(service.devices.filter((l) => l.device.active && !l.device.parentId && !l.autoInclude).map((l) => l.deviceId));
+export function bookableDevices(service: { audiences: string[]; devices: LinkRow[] }, all: DeviceRow[]) {
+  const business = service.audiences.includes('BUSINESS');
+  return all
+    .filter((d) => d.active && !d.parentId && (!d.scopePriced || business))
+    .map((d) => ({ device: d, link: service.devices.find((l) => l.deviceId === d.id) ?? null }))
+    .filter((x) => !x.link?.autoInclude);
 }
+
+/** للتوافق: معرفات الأجهزة القابلة للاختيار */
+export function allowedDeviceIds(service: { audiences: string[]; devices: LinkRow[] }, all: DeviceRow[]) {
+  return new Set(bookableDevices(service, all).map((x) => x.device.id));
+}
+
+export const allDevicesQuery = () =>
+  prisma.serviceDevice.findMany({ where: { active: true }, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }], include: { accessories: { where: { active: true }, select: { id: true, name: true } } } });
 
 /** يحسب السعر النهائي من الأسعار الحالية — يُستدعى للمعاينة قبل التأكيد وعند إنشاء الطلب */
 export async function priceVisit(input: PricingInput) {
   const serviceIds = [...new Set(input.serviceIds)];
   if (!serviceIds.length) throw badRequest('اختر خدمة واحدة على الأقل');
-  const [zone, rows] = await Promise.all([
+  const [zone, rows, allDevices] = await Promise.all([
     prisma.serviceZone.findFirst({ where: { id: input.zoneId, active: true } }),
     prisma.siteService.findMany({ where: { id: { in: serviceIds }, active: true, deletedAt: null }, include: serviceInclude }),
+    allDevicesQuery(),
   ]);
   if (!zone) throw badRequest('اختر المحافظة / المنطقة من القائمة', { field: 'zoneId' });
   if (rows.length !== serviceIds.length) throw badRequest('إحدى الخدمات المختارة غير متاحة حاليًا');
@@ -79,8 +96,8 @@ export async function priceVisit(input: PricingInput) {
   }
 
   const deviceIds = [...new Set(input.deviceIds ?? [])];
-  const allowed = allowedDeviceIds(main);
-  const bad = deviceIds.find((id) => !allowed.has(id));
+  const options = bookableDevices(main, allDevices);
+  const bad = deviceIds.find((id) => !options.some((o) => o.device.id === id));
   if (bad) throw badRequest('أحد الأجهزة المختارة غير متاح لهذه الخدمة');
 
   const requested: Urgency = input.urgency ?? 'NORMAL';
@@ -135,15 +152,15 @@ export async function priceVisit(input: PricingInput) {
     devices.push({ id: d.id, name: d.name, fee: 0, included: true, auto: true });
   };
   for (const id of deviceIds) {
-    const link = main.devices.find((l) => l.deviceId === id)!;
-    const d = link.device;
+    const { device: d, link } = options.find((o) => o.device.id === id)!;
+    const included = !!link?.included;
     if (d.scopePriced) {
       lines.push({ kind: 'quote', label: `${d.name} — ${AREA_PRICED}`, amount: 0 });
       devices.push({ id, name: d.name, fee: 0, included: false, scopePriced: true });
     } else {
-      const fee = link.included ? 0 : num(link.fee ?? d.fee);
-      lines.push({ kind: 'device', label: link.included ? `${d.name} (مشمول في الزيارة)` : d.name, amount: r3(fee) });
-      devices.push({ id, name: d.name, fee: r3(fee), included: link.included });
+      const fee = included ? 0 : num(link?.fee ?? d.fee);
+      lines.push({ kind: 'device', label: included ? `${d.name} (مشمول في الزيارة)` : d.name, amount: r3(fee) });
+      devices.push({ id, name: d.name, fee: r3(fee), included });
     }
     for (const acc of d.accessories) addFree(acc);
   }

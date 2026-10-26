@@ -30,7 +30,15 @@ settingsRouter.get(
   asyncHandler(async (_req, res) => {
     ok(res, {
       settings: await getSettings(),
-      system: { whatsappMode: whatsappMode(), cloudinary: env.cloudinaryEnabled, email: env.emailEnabled },
+      system: {
+        whatsappMode: whatsappMode(),
+        cloudinary: env.cloudinaryEnabled,
+        email: env.emailEnabled,
+        mailProvider: env.mailProvider,
+        mailFrom: env.mailFrom,
+        /** المرسل بعنوان مجاني (gmail/hotmail…) عبر مزود خارجي يفشل في التحقق ويذهب للسبام أحيانًا */
+        mailFromFreeDomain: env.mailProvider !== 'smtp' && /@(gmail|googlemail|hotmail|outlook|live|yahoo|icloud)\./i.test(env.mailFrom),
+      },
     });
   }),
 );
@@ -55,6 +63,16 @@ logsRouter.get(
       prisma.whatsAppLog.findMany({ orderBy: { createdAt: 'desc' }, ...pageArgs(q) }),
       prisma.whatsAppLog.count(),
     ]);
+    ok(res, paged(items, total, q));
+  }),
+);
+
+/** سجل البريد: ما أُرسل وما فشل وسببه */
+logsRouter.get(
+  '/email',
+  asyncHandler(async (req, res) => {
+    const q = paginationSchema.parse(req.query);
+    const [items, total] = await Promise.all([prisma.emailLog.findMany({ orderBy: { createdAt: 'desc' }, ...pageArgs(q) }), prisma.emailLog.count()]);
     ok(res, paged(items, total, q));
   }),
 );

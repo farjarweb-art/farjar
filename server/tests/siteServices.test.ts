@@ -3,7 +3,7 @@ import { SIGNAGE_SLUG, WATER_SLUG, seedServices } from '../prisma/seedServices';
 import { app, createAdmin, createCustomer, nextWorkingDate, prisma, resetDb } from './helpers';
 
 type Detail = {
-  service: { id: string; problems: { id: string; name: string; isOther: boolean; deviceIds: string[] }[]; devices: { id: string; name: string; fee: number }[] };
+  service: { id: string; problems: { id: string; name: string; isOther: boolean; deviceIds: string[] }[]; devices: { id: string; name: string; fee: number; linked?: boolean }[] };
   zones: { id: string; name: string; tier: string }[];
   combinable: { id: string }[];
 };
@@ -38,7 +38,9 @@ describe('كتالوج الخدمات', () => {
     // لا يوجد جهاز كخدمة رئيسية مستقلة
     expect(list.some((s: { name: string }) => s.name.includes('جهاز'))).toBe(false);
     expect(water.service.problems).toHaveLength(8);
-    expect(water.service.devices).toHaveLength(9);
+    expect(water.service.devices.filter((d) => d.linked)).toHaveLength(9);
+    // كل الأجهزة المتاحة تظهر للعميل في أي حجز (المربوطة بالخدمة أولًا)
+    expect(water.service.devices.length).toBeGreaterThanOrEqual(15);
     expect(water.combinable.length).toBeGreaterThan(0);
   });
 });
@@ -57,10 +59,19 @@ describe('التسعير الثابت للزيارة', () => {
     expect(res.body.data.devices.find((d: { auto?: boolean }) => d.auto).name).toContain('خطافات');
   });
 
-  it('كل أجهزة المياه متاحة مع أي مشكلة، وجهاز من خارج الخدمة مرفوض', async () => {
+  it('العميل يختار أي جهاز متاح في أي حجز (بسعره العام إن لم يكن مربوطًا بالخدمة)، والملحقات لا تُختار وحدها', async () => {
     expect((await quote({ serviceIds: [water.service.id], zoneId: amman, problemIds: [problem('ضغط')], deviceIds: [device('الحراري')] })).status).toBe(200);
     const schmidt = await prisma.serviceDevice.findFirstOrThrow({ where: { code: 'schmidt_hammer_inspection' } });
-    expect((await quote({ serviceIds: [water.service.id], zoneId: amman, problemIds: [problem('ضغط')], deviceIds: [schmidt.id] })).status).toBe(400);
+    const r = await quote({ serviceIds: [water.service.id], zoneId: amman, problemIds: [problem('ضغط')], deviceIds: [schmidt.id] });
+    expect(r.status).toBe(200);
+    expect(r.body.data.lines[1]).toMatchObject({ kind: 'device', amount: 25 });
+    const hooks = await prisma.serviceDevice.findFirstOrThrow({ where: { code: 'endoscope_hooks_free' } });
+    expect((await quote({ serviceIds: [water.service.id], zoneId: amman, problemIds: [problem('ضغط')], deviceIds: [hooks.id] })).status).toBe(400);
+    // المعدات الثقيلة لخدمات المنشآت فقط
+    const ridgid = await prisma.serviceDevice.findFirstOrThrow({ where: { code: 'ridgid_k1500_commercial_drain' } });
+    const electrical = await slug('electrical-inspection');
+    expect((await quote({ serviceIds: [electrical], zoneId: amman, deviceIds: [ridgid.id] })).status).toBe(400);
+    expect((await quote({ serviceIds: [electrical], zoneId: amman, deviceIds: [schmidt.id] })).status).toBe(200);
     // المشكلة مطلوبة في قسم التسربات
     expect((await quote({ serviceIds: [water.service.id], zoneId: amman })).status).toBe(400);
   });

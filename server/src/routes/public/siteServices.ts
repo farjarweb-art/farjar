@@ -13,7 +13,7 @@ import { memoryUpload, uploadGuard } from '../../middleware/upload';
 import { accountCustomer } from '../../services/customer.service';
 import { getServiceDaySlots } from '../../services/schedule.service';
 import { resolveMapLink } from '../../services/mapLink';
-import { priceVisit } from '../../services/servicePricing';
+import { allDevicesQuery, priceVisit } from '../../services/servicePricing';
 import { CLIENT_TYPE_AR, OWNERSHIP_OPTIONS, REQUEST_TYPE_AR, logEvent, parseFormFields, resolveExtra, serviceRequestMessage } from '../../services/siteServices.service';
 import { POLICIES, validateAndStore, validateFile } from '../../services/upload.service';
 import { notifyAdmin } from '../../services/whatsapp.service';
@@ -106,7 +106,10 @@ siteServicesRouter.get(
       },
     });
     if (!s) throw notFound('الخدمة غير موجودة');
-    const zones = await prisma.serviceZone.findMany({ where: { active: true }, orderBy: { sortOrder: 'asc' }, select: { id: true, name: true, tier: true, travelFee: true, requiresApproval: true, regions: true } });
+    const [zones, allDevices] = await Promise.all([
+      prisma.serviceZone.findMany({ where: { active: true }, orderBy: { sortOrder: 'asc' }, select: { id: true, name: true, tier: true, travelFee: true, requiresApproval: true, regions: true } }),
+      allDevicesQuery(),
+    ]);
     const combinable = new Map<string, { id: string; name: string; slug: string; priceInside: number | null; priceOutside: number | null }>();
     for (const b of s.bundles) for (const x of b.services) if (x.id !== s.id) combinable.set(x.id, { ...x, priceInside: num(x.priceInside), priceOutside: num(x.priceOutside) });
     ok(res, {
@@ -141,20 +144,28 @@ siteServicesRouter.get(
           quoteRequired: p.quoteRequired,
           deviceIds: p.devices.map((d) => d.id),
         })),
-        devices: s.devices.map((l) => ({
-          id: l.deviceId,
-          name: l.device.name,
-          description: l.device.description,
-          fee: l.included || l.device.scopePriced ? 0 : Number(l.fee ?? l.device.fee),
-          included: l.included,
-          imageUrl: l.device.imageUrl,
-          mechanism: l.device.mechanism,
-          benefits: l.device.benefits.split('\n').map((x) => x.trim()).filter(Boolean),
-          scopePriced: l.device.scopePriced,
-          parentId: l.device.parentId,
-          autoInclude: l.autoInclude,
-          accessoryIds: l.device.accessories.map((a) => a.id),
-        })),
+        // كل الأجهزة المتاحة: المربوطة بالخدمة أولًا (linked) ثم بقية الأجهزة — العميل يختار أي جهاز يريده
+        devices: allDevices
+          .filter((d) => !d.scopePriced || s.audiences.includes('BUSINESS') || s.devices.some((l) => l.deviceId === d.id))
+          .map((d) => {
+            const l = s.devices.find((x) => x.deviceId === d.id);
+            return {
+              id: d.id,
+              name: d.name,
+              description: d.description,
+              fee: l?.included || d.scopePriced ? 0 : Number(l?.fee ?? d.fee),
+              included: !!l?.included,
+              imageUrl: d.imageUrl,
+              mechanism: d.mechanism,
+              benefits: d.benefits.split('\n').map((x) => x.trim()).filter(Boolean),
+              scopePriced: d.scopePriced,
+              parentId: d.parentId,
+              autoInclude: !!l?.autoInclude,
+              accessoryIds: d.accessories.map((x) => x.id),
+              linked: !!l,
+            };
+          })
+          .sort((x, y) => Number(y.linked) - Number(x.linked)),
         bundles: s.bundles.map((b) => ({ id: b.id, name: b.name, priceInside: num(b.priceInside), priceOutside: num(b.priceOutside), terms: b.terms })),
       },
       combinable: [...combinable.values()],

@@ -16,12 +16,12 @@ import { cx, displayPhone, formatDate } from '../../lib/format';
 import type { Paged } from '../../lib/types';
 import { useDocumentTitle } from '../../lib/useAsync';
 
-type TabKey = 'whatsapp' | 'audit';
+type TabKey = 'whatsapp' | 'email' | 'audit';
 
 export default function Logs() {
   useDocumentTitle('السجلات');
   const [params, setParams] = useSearchParams();
-  const tab: TabKey = params.get('tab') === 'audit' ? 'audit' : 'whatsapp';
+  const tab: TabKey = params.get('tab') === 'audit' ? 'audit' : params.get('tab') === 'email' ? 'email' : 'whatsapp';
   const page = Math.max(1, Number(params.get('page') ?? 1) || 1);
   const go = (patch: { tab?: TabKey; page?: number }) =>
     setParams(
@@ -41,11 +41,12 @@ export default function Logs() {
     );
 
   return (
-    <AdminPage title="السجلات" description="رسائل واتساب المرسلة وسجل عمليات الإدارة">
+    <AdminPage title="السجلات" description="رسائل واتساب والبريد المرسلة وسجل عمليات الإدارة">
       <div className="mb-4 flex gap-1 border-b border-line" role="tablist">
         {(
           [
             ['whatsapp', 'سجل واتساب'],
+            ['email', 'سجل البريد'],
             ['audit', 'سجل العمليات'],
           ] as const
         ).map(([k, l]) => (
@@ -64,7 +65,7 @@ export default function Logs() {
           </button>
         ))}
       </div>
-      {tab === 'whatsapp' ? <WhatsAppLogs page={page} onPage={(p) => go({ page: p })} /> : <AuditLogs page={page} onPage={(p) => go({ page: p })} />}
+      {tab === 'whatsapp' ? <WhatsAppLogs page={page} onPage={(p) => go({ page: p })} /> : tab === 'email' ? <EmailLogs page={page} onPage={(p) => go({ page: p })} /> : <AuditLogs page={page} onPage={(p) => go({ page: p })} />}
     </AdminPage>
   );
 }
@@ -192,6 +193,56 @@ function AuditLogs({ page, onPage }: { page: number; onPage: (p: number) => void
       pages={q.data?.pages}
       onPage={onPage}
       empty={{ title: 'لا توجد عمليات مسجلة' }}
+    />
+  );
+}
+
+type EmailLog = { id: string; to: string; subject: string; kind: string; provider: string; status: 'SENT' | 'FAILED'; attempts: number; error: string | null; createdAt: string };
+const EMAIL_KIND: Record<string, string> = { otp: 'رمز تحقق', reset: 'استعادة كلمة المرور', other: 'رسالة خدمية' };
+
+/** سجل البريد: كل رسالة خدمية أُرسلت أو فشلت مع السبب */
+function EmailLogs({ page, onPage }: { page: number; onPage: (p: number) => void }) {
+  const q = useAdminQuery(() => api.get<Paged<EmailLog>>('/admin/logs/email', { page, pageSize: 30 }), [page], { live: true, keep: true });
+  const columns: Column<EmailLog>[] = [
+    { key: 'date', header: 'التاريخ', cell: (l) => <span className="whitespace-nowrap text-sm">{formatDate(l.createdAt, true)}</span> },
+    { key: 'to', header: 'إلى', cell: (l) => <span className="ltr text-sm">{l.to}</span> },
+    { key: 'kind', header: 'النوع', cell: (l) => <span className="text-xs text-muted">{EMAIL_KIND[l.kind] ?? l.kind}</span> },
+    {
+      key: 'status',
+      header: 'الحالة',
+      cell: (l) => (
+        <span className="flex flex-wrap items-center gap-1">
+          <Tag tone={l.status === 'SENT' ? 'brand' : 'danger'}>{l.status === 'SENT' ? 'أُرسلت' : 'فشلت'}</Tag>
+          {l.attempts > 1 && <span className="text-xs text-muted">({l.attempts} محاولات)</span>}
+        </span>
+      ),
+    },
+    {
+      key: 'subject',
+      header: 'الموضوع',
+      className: 'max-w-[22rem]',
+      cell: (l) => (
+        <span className="block text-sm text-muted">
+          <Truncated text={l.subject} />
+          {l.error && <span className="ltr mt-0.5 block text-start text-xs text-danger">{l.error}</span>}
+        </span>
+      ),
+    },
+  ];
+  return (
+    <DataTable
+      rows={q.data?.items}
+      columns={columns}
+      rowKey={(l) => l.id}
+      loading={q.loading}
+      refreshing={q.refreshing}
+      error={q.error}
+      onRetry={q.retry}
+      total={q.data?.total}
+      page={q.data?.page}
+      pages={q.data?.pages}
+      onPage={onPage}
+      empty={{ title: 'لا توجد رسائل بريد بعد', description: 'تُسجّل هنا رموز التحقق ورسائل استعادة كلمة المرور: ما أُرسل وما فشل وسببه.' }}
     />
   );
 }

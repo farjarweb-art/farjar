@@ -30,8 +30,8 @@ export default function ServiceDetail() {
     );
   }
   const audience = s.audiences.includes('HOME') ? 'HOME' : 'BUSINESS';
-  const heavy = s.devices.filter((d) => d.scopePriced);
-  const addons = s.devices.filter((d) => !d.scopePriced);
+  const heavy = s.devices.filter((d) => d.scopePriced && d.linked !== false);
+  const addons = s.devices.filter((d) => !d.scopePriced && d.linked !== false);
   return (
     <>
       <header className="border-b border-line bg-subtle">

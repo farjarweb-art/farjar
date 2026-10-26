@@ -154,6 +154,8 @@ export type ServiceDeviceInfo = {
   /** يُضاف تلقائيًا مجانًا لكل حجز */
   autoInclude: boolean;
   accessoryIds: string[];
+  /** مربوط بهذه الخدمة (يظهر أولًا) — غير المربوط متاح للاختيار أيضًا */
+  linked?: boolean;
 };
 
 /** يزيل وسم "(إضافة مجانية 🎁)" من الاسم لعرضه كشارة منفصلة */
@@ -349,7 +351,7 @@ export function normalizeDetail(d: ServiceDetail): ServiceDetail {
       formFields: s.formFields ?? [],
       priceUrgent: s.priceUrgent ?? null,
       priceEmergency: s.priceEmergency ?? null,
-      devices: s.devices.map((x) => ({ ...x, imageUrl: x.imageUrl ?? null, mechanism: x.mechanism ?? '', benefits: x.benefits ?? [], scopePriced: !!x.scopePriced, parentId: x.parentId ?? null, autoInclude: !!x.autoInclude, accessoryIds: x.accessoryIds ?? [] })),
+      devices: s.devices.map((x) => ({ ...x, imageUrl: x.imageUrl ?? null, mechanism: x.mechanism ?? '', benefits: x.benefits ?? [], scopePriced: !!x.scopePriced, parentId: x.parentId ?? null, autoInclude: !!x.autoInclude, accessoryIds: x.accessoryIds ?? [], linked: x.linked ?? true })),
       problems: s.problems.map((p) => ({ ...p, description: p.description ?? [], quoteRequired: !!p.quoteRequired })),
     },
   };

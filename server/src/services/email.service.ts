@@ -37,6 +37,24 @@ type OutMail = { to: string; subject: string; html: string; text: string; header
  * - SMTP (مثل Gmail) — للاستضافات التي تسمح به.
  */
 async function deliver(m: OutMail) {
+  if (env.isTest || env.mailProvider === 'smtp' || env.mailProvider === 'none') return deliverOnce(m);
+  // إعادة المحاولة عند الأعطال المؤقتة (شبكة، 429، 5xx) — الرفض الدائم (4xx) لا يُعاد
+  let last: unknown;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await deliverOnce(m);
+      return attempt;
+    } catch (e) {
+      last = e;
+      const status = Number(/ (\d{3}):/.exec(String((e as Error)?.message ?? ''))?.[1] ?? 0);
+      if (status && status < 500 && status !== 429) break;
+      if (attempt < 3) await new Promise((r) => setTimeout(r, attempt * 1500));
+    }
+  }
+  throw last;
+}
+
+async function deliverOnce(m: OutMail) {
   if (env.isTest || env.mailProvider === 'smtp' || env.mailProvider === 'none') {
     await getTransporter().sendMail({ from: { name: env.MAIL_FROM_NAME, address: env.mailFrom }, ...m });
     return;
@@ -191,17 +209,32 @@ export function renderCampaign(c: CampaignContent, recipient: { name: string; id
 export const testOutbox: { to: string; subject: string; html: string; text: string }[] = [];
 
 /** إرسال رسالة خدمية واحدة (رمز تحقق، إعادة تعيين…) — لا تتطلب الاشتراك في النشرة */
-export async function sendTransactional(to: string, m: { subject: string; html: string; text: string }) {
+export async function sendTransactional(to: string, m: { subject: string; html: string; text: string }, kind = 'other') {
   if (env.isTest) {
     testOutbox.push({ to, ...m });
     if (testOutbox.length > 50) testOutbox.shift();
   }
-  await deliver({ to, subject: m.subject, html: m.html, text: m.text, headers: { 'X-Entity-Ref-ID': `${Date.now()}` } });
+  try {
+    const attempts = await deliver({ to, subject: m.subject, html: m.html, text: m.text, headers: { 'X-Entity-Ref-ID': `${Date.now()}` } });
+    await logEmail({ to, subject: m.subject, kind, status: 'SENT', attempts: attempts ?? 1 });
+  } catch (e) {
+    await logEmail({ to, subject: m.subject, kind, status: 'FAILED', attempts: 3, error: String((e as Error)?.message ?? e).slice(0, 500) });
+    throw e;
+  }
+}
+
+/** يسجل نتيجة الإرسال (لا يُفشل العملية إن تعذر التسجيل) */
+async function logEmail(l: { to: string; subject: string; kind: string; status: 'SENT' | 'FAILED'; attempts: number; error?: string }) {
+  try {
+    await prisma.emailLog.create({ data: { ...l, provider: env.mailProvider } });
+  } catch (e) {
+    console.error('email log failed', e);
+  }
 }
 
 /** رابط إعادة تعيين كلمة المرور */
 export async function sendPasswordReset(to: string, name: string, url: string) {
-  await sendTransactional(to, await renderPasswordResetEmail(name, url));
+  await sendTransactional(to, await renderPasswordResetEmail(name, url), 'reset');
 }
 
 // ───────────── الإرسال ─────────────

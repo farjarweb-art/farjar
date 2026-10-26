@@ -45,7 +45,7 @@ const PROPERTIES: { label: string; audience: Audience; client: ClientType; icon:
   { label: 'شركة', audience: 'BUSINESS', client: 'COMPANY', icon: 'briefcase' },
 ];
 
-const STEPS = ['العقار والموقع', 'التواصل', 'الموعد', 'الخدمة والفحوصات', 'الصور والتأكيد'];
+const STEPS = ['الخدمة والفحوصات', 'العقار والموقع', 'التواصل', 'الموعد', 'الصور والتأكيد'];
 
 /** ملاحظة الإضافات التشخيصية كما تظهر للعميل */
 const ADDON_NOTE = 'ملاحظة: هذا كشف فني أولي لا يشمل أي فحص مخبري أو أجهزة متقدمة إلا بناءً على الطلب، ويتم تسعير كل إضافة حسب طلب العميل وتشخيص الموقع.';
@@ -88,17 +88,17 @@ const EMPTY: Vals = {
 
 /** مفاتيح حقول كل خطوة (للتنقل لأول خطأ) */
 const STEP_KEYS = [
+  ['slug', 'urgency', 'requestType', 'problemIds', 'deviceIds'],
   ['ownership', 'propertyType', 'zoneId', 'area', 'address', 'lat'],
   ['name', 'phone', 'phone2'],
   ['time'],
-  ['slug', 'urgency', 'requestType', 'problemIds', 'deviceIds'],
   ['description', 'problemLocation', 'photos', 'video', 'notes', 'accept'],
 ];
 const stepOf = (k: string) => {
-  if (k === 'date') return 2;
-  if (k === 'lng') return 0;
-  if (k === 'serviceIds') return 3;
-  if (k.startsWith('extra.')) return 3;
+  if (k === 'date') return 3;
+  if (k === 'lng') return 1;
+  if (k === 'serviceIds') return 0;
+  if (k.startsWith('extra.')) return 0;
   const i = STEP_KEYS.findIndex((ks) => ks.includes(k));
   return i < 0 ? 4 : i;
 };
@@ -122,7 +122,11 @@ export default function ServiceBook() {
     ownership: params.get('ownership') ?? '',
     urgency: (['URGENT', 'EMERGENCY'] as const).find((u) => u === params.get('urgency')) ?? 'NORMAL',
   }));
+  /** قسم الخدمات كما في الصفحة الرئيسية: منازل وشقق / شركات ومصانع */
+  const [tab, setTab] = useState<Audience>(params.get('for') === 'business' ? 'BUSINESS' : 'HOME');
   const [areaOther, setAreaOther] = useState(false);
+  /** قائمة الخدمات مفتوحة حتى يختار العميل خدمة، ثم تُطوى لتظهر تفاصيلها مباشرة */
+  const [pickOpen, setPickOpen] = useState(() => !(routeSlug || params.get('service')));
   const [mapLink, setMapLink] = useState('');
   const [mapLinkState, setMapLinkState] = useState<{ loading?: boolean; error?: string; ok?: boolean }>({});
   const [photos, setPhotos] = useState<File[]>([]);
@@ -153,20 +157,23 @@ export default function ServiceBook() {
   useAccountPrefill((x) => setV((y) => ({ ...y, name: y.name || x.name, phone: y.phone || x.localPhone })));
 
   const property = PROPERTIES.find((p) => p.label === v.propertyType);
-  const audience: Audience | null = property?.audience ?? null;
-  const services = useMemo(() => (c && audience ? c.services.filter((x) => x.audiences.includes(audience)) : []), [c, audience]);
+  const audience: Audience = tab;
+  const properties = PROPERTIES.filter((p) => p.audience === tab);
+  const services = useMemo(() => (c ? c.services.filter((x) => x.audiences.includes(tab)) : []), [c, tab]);
   const zone = c?.zones.find((z) => z.id === v.zoneId);
 
-  // خدمة لا تناسب نوع العقار المختار تُلغى (مثلًا خدمة للمصانع مع شقة سكنية)
-  const [serviceDropped, setServiceDropped] = useState<string | null>(null);
+  // خدمة محددة مسبقًا (من الصفحة الرئيسية أو صفحة الخدمة): نفتح قسمها
+  const synced = useRef(false);
   useEffect(() => {
-    if (!c || !audience || !v.slug) return;
+    if (!c || synced.current) return;
+    synced.current = true;
     const svc = c.services.find((x) => x.slug === v.slug);
-    if (svc && !svc.audiences.includes(audience)) {
-      setServiceDropped(svc.name);
-      setV((x) => ({ ...x, slug: '', problemIds: [], deviceIds: [], extraIds: [], requestType: '' }));
-    }
-  }, [c, audience, v.slug]);
+    if (svc && !svc.audiences.includes(tab)) setTab(svc.audiences[0]);
+  }, [c, v.slug, tab]);
+  // نوع العقار يتبع القسم المختار
+  useEffect(() => {
+    if (v.propertyType && !PROPERTIES.some((p) => p.label === v.propertyType && p.audience === tab)) setV((x) => ({ ...x, propertyType: '' }));
+  }, [tab, v.propertyType]);
 
   // نوع الطلب الافتراضي = أول نوع متاح (أو الوحيد)
   useEffect(() => {
@@ -255,8 +262,8 @@ export default function ServiceBook() {
   };
   const toggle = (k: 'problemIds' | 'deviceIds' | 'extraIds', id: string) => set(k, v[k].includes(id) ? v[k].filter((x) => x !== id) : [...v[k], id]);
   const chooseService = (slug: string) => {
-    setServiceDropped(null);
     setV((x) => (x.slug === slug ? x : { ...x, slug, problemIds: [], deviceIds: [], extraIds: [], requestType: '' }));
+    setPickOpen(false);
     setExtra({});
     setErrors((e) => ({ ...e, slug: '' }));
   };
@@ -277,7 +284,7 @@ export default function ServiceBook() {
 
   function validate(i: number): Record<string, string> {
     const e: Record<string, string> = {};
-    if (i === 0) {
+    if (i === 1) {
       if (c!.ownershipOptions.length && !v.ownership) e.ownership = 'اختر صفتك بالنسبة للعقار';
       if (!property) e.propertyType = 'اختر نوع العقار';
       if (!v.zoneId) e.zoneId = 'اختر المحافظة';
@@ -285,15 +292,15 @@ export default function ServiceBook() {
       if (v.address.trim().length < 5) e.address = 'اكتب العنوان بالتفصيل';
       if (v.lat == null || v.lng == null) e.lat = 'حدد موقع العقار: بزر GPS، أو بلصق رابط الخريطة، أو من الخريطة';
     }
-    if (i === 1) {
+    if (i === 2) {
       if (v.name.trim().length < 2) e.name = 'اكتب اسمك';
       if (!isValidPhone(v.phone)) e.phone = 'رقم الهاتف غير صحيح (مثال: 0791234567)';
       if (!v.phone2.trim()) e.phone2 = 'الرقم الثانوي مطلوب';
       else if (!isValidPhone(v.phone2)) e.phone2 = 'الرقم الثانوي غير صحيح (مثال: 0781234567)';
       else if (isValidPhone(v.phone) && samePhone(v.phone, v.phone2)) e.phone2 = 'اكتب رقمًا مختلفًا عن الرقم الأساسي';
     }
-    if (i === 2 && (!v.date || !v.time)) e.time = 'اختر اليوم والموعد المناسب للزيارة';
-    if (i === 3) {
+    if (i === 3 && (!v.date || !v.time)) e.time = 'اختر اليوم والموعد المناسب للزيارة';
+    if (i === 0) {
       if (!s) e.slug = 'اختر الخدمة أو نوع المشكلة';
       else {
         if (!v.requestType) e.requestType = 'اختر نوع الطلب';
@@ -390,7 +397,7 @@ export default function ServiceBook() {
         setV((x) => ({ ...x, time: '' }));
         setSlotsKey((k) => k + 1);
         setErrors({ time: err.message });
-        goTo(2);
+        goTo(3);
       } else {
         const key = err.field ? err.field.replace(/^details\./, '') : null;
         if (key) {
@@ -445,7 +452,7 @@ export default function ServiceBook() {
                   else void submit();
                 }}
               >
-                {step === 0 && (
+                {step === 1 && (
                   <div className="space-y-6">
                     <StepHeading stepKey={step} title="بيانات العقار والموقع" />
                     {c.ownershipOptions.length > 0 && (
@@ -458,7 +465,7 @@ export default function ServiceBook() {
                     <fieldset data-field="propertyType">
                       <legend className="label">نوع العقار</legend>
                       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                        {PROPERTIES.map((p) => {
+                        {properties.map((p) => {
                           const on = v.propertyType === p.label;
                           return (
                             <label
@@ -589,7 +596,7 @@ export default function ServiceBook() {
                   </div>
                 )}
 
-                {step === 1 && (
+                {step === 2 && (
                   <div className="space-y-6">
                     <StepHeading stepKey={step} title="معلومات التواصل" description="رقمان للتواصل حتى يصل الفني إليك بسهولة يوم الزيارة." />
                     <AccountNote what="الطلب" />
@@ -599,7 +606,7 @@ export default function ServiceBook() {
                   </div>
                 )}
 
-                {step === 2 && (
+                {step === 3 && (
                   <div className="space-y-6">
                     <StepHeading stepKey={step} title="اختر موعد الزيارة" description="اختر اليوم ثم الموعد المناسب لك من المواعيد المتاحة." />
                     <div data-field="time">
@@ -619,23 +626,40 @@ export default function ServiceBook() {
                   </div>
                 )}
 
-                {step === 3 && (
+                {step === 0 && (
                   <div className="space-y-7">
-                    <StepHeading stepKey={step} title="نوع المشكلة والخدمة المطلوبة" />
+                    <StepHeading stepKey={step} title="اختر الفحص أو الخدمة" description="مثل فحص الماء والتسربات، فحص العقار قبل الشراء، أو الفحص الشامل — ثم أضف الأجهزة التي تريدها." />
                     <Alert tone="info" title="زيارة الكشف الفني الأساسي">
                       تشمل الزيارة معاينة الموقع وتقريرًا بحالته وتقديم عرض سعر للأعمال المطلوبة. سعر الزيارة يظهر على كل خدمة، والإجمالي النهائي يظهر قبل التأكيد.
                     </Alert>
-                    {serviceDropped && (
-                      <Alert tone="warn" title="اختر خدمة مناسبة لنوع العقار">
-                        خدمة «{serviceDropped}» غير متاحة لـ {v.propertyType}. اختر من الخدمات التالية.
-                      </Alert>
-                    )}
+                    <div role="tablist" aria-label="نوع العقار" className="grid grid-cols-2 gap-1 rounded-xl bg-inverse p-1">
+                      {(
+                        [
+                          ['HOME', 'home', 'منازل وشقق'],
+                          ['BUSINESS', 'factory', 'شركات ومصانع'],
+                        ] as const
+                      ).map(([k, icon, label]) => (
+                        <button
+                          key={k}
+                          type="button"
+                          role="tab"
+                          aria-selected={tab === k}
+                          onClick={() => {
+                            setTab(k);
+                            const cur = c.services.find((x) => x.slug === v.slug);
+                            if (cur && !cur.audiences.includes(k)) setV((x) => ({ ...x, slug: '', problemIds: [], deviceIds: [], extraIds: [], requestType: '' }));
+                            setPickOpen(true);
+                          }}
+                          className={cx('inline-flex min-h-[46px] items-center justify-center gap-2 rounded-lg text-sm font-semibold transition-colors', tab === k ? 'bg-primary text-primary-fg' : 'text-inverse-fg/70 hover:text-inverse-fg')}
+                        >
+                          <Icon name={icon} className="h-4 w-4" /> {label}
+                        </button>
+                      ))}
+                    </div>
                     <fieldset data-field="slug">
-                      <legend className="label">
-                        الخدمة — {audience === 'BUSINESS' ? 'شركات ومصانع' : 'منازل وشقق'}
-                      </legend>
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        {services.map((x) => {
+                      <legend className="label">اختر الخدمة — {audience === 'BUSINESS' ? 'شركات ومصانع' : 'منازل وشقق'}</legend>
+                      <div key={tab} className="anim-fade grid gap-2 sm:grid-cols-2">
+                        {services.filter((x) => pickOpen || !v.slug || x.slug === v.slug).map((x) => {
                           const on = v.slug === x.slug;
                           return (
                             <label
@@ -647,7 +671,12 @@ export default function ServiceBook() {
                             >
                               <input type="radio" name="service" className="sr-only" checked={on} onChange={() => chooseService(x.slug)} />
                               <span className="flex items-start justify-between gap-2">
-                                <span className="font-bold leading-snug">{x.name}</span>
+                                <span className="flex min-w-0 items-start gap-2.5">
+                                  <span className={cx('grid h-9 w-9 shrink-0 place-items-center rounded-lg', on ? 'bg-primary text-primary-fg' : 'bg-primary/15 text-brand-700 dark:text-primary')}>
+                                    <Icon name={x.featured ? 'star' : 'check'} className="h-4 w-4" />
+                                  </span>
+                                  <span className="font-bold leading-snug">{x.name}</span>
+                                </span>
                                 <span className={cx('mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border-2', on ? 'border-brand-600 bg-brand-600 text-white' : 'border-line-strong')}>
                                   {on && <Icon name="check" className="h-3 w-3" />}
                                 </span>
@@ -660,6 +689,11 @@ export default function ServiceBook() {
                           );
                         })}
                       </div>
+                      {!pickOpen && v.slug && (
+                        <button type="button" onClick={() => setPickOpen(true)} className="mt-2 inline-flex min-h-[40px] items-center gap-1.5 text-sm font-semibold text-brand-700 hover:underline dark:text-brand-300">
+                          <Icon name="refresh" className="h-4 w-4" /> تغيير الخدمة (عرض كل الخدمات)
+                        </button>
+                      )}
                       {err('slug') && <p className="mt-1.5 text-sm text-danger">{err('slug')}</p>}
                     </fieldset>
 
@@ -668,6 +702,26 @@ export default function ServiceBook() {
 
                     {s && d && (
                       <>
+                        <section className="rounded-xl border border-brand-600/30 bg-brand-50/40 p-4 dark:bg-brand-900/10">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <h3 className="text-base">ما تشمله زيارة «{s.name}»</h3>
+                            <a href={`/services/${s.slug}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm font-semibold text-brand-700 hover:underline dark:text-brand-300">
+                              التفاصيل الكاملة <Icon name="external" className="h-3.5 w-3.5" />
+                            </a>
+                          </div>
+                          {s.summary && <p className="mt-1 text-sm text-muted">{s.summary}</p>}
+                          {s.includes.length > 0 && (
+                            <ul className="mt-3 grid gap-1.5 text-sm sm:grid-cols-2">
+                              {s.includes.map((x) => (
+                                <li key={x} className="flex items-start gap-2">
+                                  <Icon name="check" className="mt-0.5 h-4 w-4 shrink-0 text-success" /> {x}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                          {s.deliverables.length > 0 && <p className="mt-3 text-[13px] text-muted">المخرجات: {s.deliverables.join('، ')}</p>}
+                        </section>
+
                         {s.requestTypes.length > 1 && (
                           <div data-field="requestType">
                             <ChoiceGroup label="نوع الطلب" value={v.requestType || undefined} onChange={(x) => set('requestType', x)} options={s.requestTypes.map((t) => ({ value: t.value, label: t.label }))} error={err('requestType')} />
@@ -740,23 +794,37 @@ export default function ServiceBook() {
                         {s.devices.length > 0 && (
                           <fieldset data-field="deviceIds">
                             <legend className="label">أجهزة الفحص الإضافية (اختياري)</legend>
-                            <p className="-mt-1 mb-3 text-sm text-muted">تظهر هنا الأجهزة الخاصة بـ «{s.name}». اضغط «التفاصيل» لقراءة آلية عمل الجهاز وفائدته الفنية.</p>
+                            <p className="-mt-1 mb-3 text-sm text-muted">اختر أي جهاز تريد أن نفحص لك به — الأجهزة المخصصة لهذه الخدمة أولًا ثم بقية الأجهزة المتاحة. اضغط «التفاصيل» لقراءة آلية عمل الجهاز وفائدته الفنية.</p>
                             {needsProblems && !v.problemIds.length ? (
                               <p className="rounded-lg bg-subtle px-4 py-3 text-sm text-muted">اختر المشكلة أولًا لتظهر لك الأجهزة المناسبة لها.</p>
                             ) : sortedDevices.length ? (
-                              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                                {sortedDevices.map((x) => (
-                                  <div key={x.id} className="relative">
-                                    {recommended.has(x.id) && <span className="absolute -top-2 end-3 z-10 rounded-full bg-success px-2 py-0.5 text-[11px] font-bold text-white shadow">مقترح لمشكلتك</span>}
-                                    <DeviceCard
-                                      device={x}
-                                      mode="select"
-                                      selected={v.deviceIds.includes(x.id)}
-                                      onToggle={() => toggle('deviceIds', x.id)}
-                                      note={x.accessoryIds.length ? `يشمل مجانًا: ${s.devices.filter((y) => x.accessoryIds.includes(y.id)).map((y) => cleanDeviceName(y.name)).join('، ')} 🎁` : undefined}
-                                    />
-                                  </div>
-                                ))}
+                              <div className="space-y-5">
+                                {[
+                                  { key: 'mine', title: `أجهزة مخصصة لـ «${s.name}»`, list: sortedDevices.filter((x) => x.linked !== false) },
+                                  { key: 'all', title: 'أجهزة أخرى يمكنك إضافتها لنفس الزيارة', list: sortedDevices.filter((x) => x.linked === false) },
+                                ]
+                                  .filter((g) => g.list.length)
+                                  .map((g) => (
+                                    <div key={g.key}>
+                                      <h4 className="mb-2 flex items-center gap-2 text-sm font-bold">
+                                        {g.title} <span className="rounded-full bg-subtle px-2 py-0.5 text-xs font-semibold text-muted">{g.list.length}</span>
+                                      </h4>
+                                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                        {g.list.map((x) => (
+                                          <div key={x.id} className="relative">
+                                            {recommended.has(x.id) && <span className="absolute -top-2 end-3 z-10 rounded-full bg-success px-2 py-0.5 text-[11px] font-bold text-white shadow">مقترح لمشكلتك</span>}
+                                            <DeviceCard
+                                              device={x}
+                                              mode="select"
+                                              selected={v.deviceIds.includes(x.id)}
+                                              onToggle={() => toggle('deviceIds', x.id)}
+                                              note={x.accessoryIds.length ? `يشمل مجانًا: ${s.devices.filter((y) => x.accessoryIds.includes(y.id)).map((y) => cleanDeviceName(y.name)).join('، ')} 🎁` : undefined}
+                                            />
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ))}
                               </div>
                             ) : (
                               <p className="rounded-lg bg-subtle px-4 py-3 text-sm text-muted">لا تحتاج هذه الخدمة أجهزة إضافية — المعاينة الأساسية تكفي.</p>
@@ -845,7 +913,7 @@ export default function ServiceBook() {
                     {quote ? <PriceSummary lines={quote.lines} total={quote.total} /> : quoteError ? <Alert tone="error">{quoteError}</Alert> : <Skeleton className="h-40 w-full" />}
                     <ReviewSection
                       title="العقار والموقع"
-                      onEdit={() => goTo(0)}
+                      onEdit={() => goTo(1)}
                       rows={[
                         ['نوع العقار', v.propertyType],
                         ['صفتك', v.ownership],
@@ -856,7 +924,7 @@ export default function ServiceBook() {
                     />
                     <ReviewSection
                       title="التواصل والموعد"
-                      onEdit={() => goTo(1)}
+                      onEdit={() => goTo(2)}
                       rows={[
                         ['الاسم', v.name],
                         ['الهاتف', <span className="ltr">{v.phone}{v.phoneWhatsapp ? ' · واتساب' : ''}</span>],
@@ -866,7 +934,7 @@ export default function ServiceBook() {
                     />
                     <ReviewSection
                       title="الخدمة"
-                      onEdit={() => goTo(3)}
+                      onEdit={() => goTo(0)}
                       rows={[
                         ['الخدمة', quote?.services.map((x) => x.name).join('، ') ?? s?.name ?? ''],
                         ['نوع الطلب', v.requestType ? REQUEST_TYPE_LABEL[v.requestType] : ''],

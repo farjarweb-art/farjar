@@ -38,7 +38,7 @@ describe('كتالوج الخدمات', () => {
     // لا يوجد جهاز كخدمة رئيسية مستقلة
     expect(list.some((s: { name: string }) => s.name.includes('جهاز'))).toBe(false);
     expect(water.service.problems).toHaveLength(8);
-    expect(water.service.devices.filter((d) => d.linked)).toHaveLength(9);
+    expect(water.service.devices.filter((d) => d.linked)).toHaveLength(10); // 9 أجهزة + خيار جميع الأجهزة
     // كل الأجهزة المتاحة تظهر للعميل في أي حجز (المربوطة بالخدمة أولًا)
     expect(water.service.devices.length).toBeGreaterThanOrEqual(15);
     expect(water.combinable.length).toBeGreaterThan(0);

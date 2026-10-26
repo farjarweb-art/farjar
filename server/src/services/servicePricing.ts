@@ -63,6 +63,13 @@ export function bookableDevices(service: { audiences: string[]; devices: LinkRow
     .filter((x) => !x.link?.autoInclude);
 }
 
+/** الأجهزة التي يشملها خيار "جميع الأجهزة": أجهزة هذا الفحص (المربوطة بالخدمة)، أو كل الأجهزة إن لم يُربط شيء */
+export function packageCoverage<T extends { device: DeviceRow; link: LinkRow | null }>(options: T[]) {
+  const base = options.filter((o) => !o.device.coversAll && !o.device.scopePriced);
+  const linked = base.filter((o) => o.link);
+  return linked.length ? linked : base;
+}
+
 /** للتوافق: معرفات الأجهزة القابلة للاختيار */
 export function allowedDeviceIds(service: { audiences: string[]; devices: LinkRow[] }, all: DeviceRow[]) {
   return new Set(bookableDevices(service, all).map((x) => x.device.id));
@@ -151,10 +158,10 @@ export async function priceVisit(input: PricingInput) {
     lines.push({ kind: 'device', label: d.name.includes('🎁') ? d.name : `${d.name} — ${FREE_ADDON}`, amount: 0 });
     devices.push({ id: d.id, name: d.name, fee: 0, included: true, auto: true });
   };
-  // باقة "فحص أجهزة شامل": سعر واحد يشمل كل أجهزة الفحص — الأجهزة الفردية المختارة معها تدخل ضمنها
+  // خيار "جميع الأجهزة": سعر واحد (خاص بكل خدمة) يشمل كل أجهزة هذا الفحص — المختارة منها معه لا تُحسب مرتين
   const pkg = options.find((o) => o.device.coversAll && deviceIds.includes(o.device.id));
-  const covered = pkg ? options.filter((o) => !o.device.coversAll && !o.device.scopePriced) : [];
-  const chosenIds = pkg ? deviceIds.filter((id) => id === pkg.device.id || options.find((o) => o.device.id === id)!.device.scopePriced) : deviceIds;
+  const covered = pkg ? packageCoverage(options) : [];
+  const chosenIds = pkg ? deviceIds.filter((id) => !covered.some((o) => o.device.id === id)) : deviceIds;
   for (const id of chosenIds) {
     const { device: d, link } = options.find((o) => o.device.id === id)!;
     const included = !!link?.included;
@@ -168,7 +175,7 @@ export async function priceVisit(input: PricingInput) {
     }
     for (const acc of d.accessories) addFree(acc);
     if (d.coversAll) {
-      lines.push({ kind: 'device', label: `يشمل كل أجهزة الفحص (${covered.length} جهاز)`, amount: 0 });
+      lines.push({ kind: 'device', label: `يشمل ${covered.length} أجهزة: ${covered.map((o) => o.device.name.replace(/\s*\(إضافة مجانية 🎁\)/, '')).join('، ')}`, amount: 0 });
       for (const o of covered) {
         devices.push({ id: o.device.id, name: o.device.name, fee: 0, included: true, inPackage: true });
         for (const acc of o.device.accessories) if (!devices.some((x) => x.id === acc.id)) devices.push({ id: acc.id, name: acc.name, fee: 0, included: true, inPackage: true });

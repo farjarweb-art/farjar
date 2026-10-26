@@ -242,21 +242,24 @@ describe('الحجز الموحد: الموقع والتواصل والمواع�
   });
 });
 
-describe('فحص أجهزة شامل (باقة كل الأجهزة)', () => {
-  it('سعر واحد يشمل كل الأجهزة، والأجهزة الفردية معه لا تُحسب مرتين، والسعر يُعدّل من الإدارة', async () => {
+describe('خيار "جميع الأجهزة" لكل فحص بسعره الخاص', () => {
+  it('يحدد كل أجهزة الفحص بسعر الخدمة الخاص، لا يحسب جهازًا مرتين، والجهاز من خارج الفحص يُضاف برسومه، والسعر يُعدّل من الإدارة', async () => {
     const pkg = await prisma.serviceDevice.findUniqueOrThrow({ where: { code: 'full_device_package' } });
-    expect(pkg.coversAll).toBe(true);
-    const thermal = await prisma.serviceDevice.findUniqueOrThrow({ where: { code: 'thermal_inspection' } });
-    const res = await quote({ serviceIds: [cracks.service.id], zoneId: amman, deviceIds: [pkg.id, thermal.id] });
-    expect(res.status).toBe(200);
-    // 35 زيارة + 120 الباقة (الحراري ضمنها) + بند "يشمل" + أداة التشققات المجانية
-    expect(res.body.data.total).toBe(155);
-    expect(res.body.data.lines.some((l: { label: string }) => l.label.includes('يشمل كل أجهزة الفحص'))).toBe(true);
-    expect(res.body.data.devices.find((d: { id: string }) => d.id === thermal.id)).toMatchObject({ fee: 0, inPackage: true });
-    // المدير يعدّل سعر الباقة
-    expect((await admin.patch(`/api/v1/admin/site-services/devices/${pkg.id}`).send({ fee: 99 })).status).toBe(200);
-    expect((await quote({ serviceIds: [cracks.service.id], zoneId: amman, deviceIds: [pkg.id] })).body.data.total).toBe(134);
+    const [thermal, acoustic] = await Promise.all(['thermal_inspection', 'acoustic_leak_detection'].map((code) => prisma.serviceDevice.findUniqueOrThrow({ where: { code } })));
     const d = await detail('cracks-inspection');
-    expect(d.service.devices.find((x) => x.id === pkg.id)).toMatchObject({ fee: 99 });
+    // سعر خاص بفحص التشققات: 70% من مجموع أجهزته (90) ≈ 65
+    expect(d.service.devices.find((x) => x.id === pkg.id)).toMatchObject({ fee: 65, linked: true });
+    const res = await quote({ serviceIds: [cracks.service.id], zoneId: amman, deviceIds: [pkg.id, thermal.id, acoustic.id] });
+    expect(res.status).toBe(200);
+    // 35 زيارة + 65 جميع الأجهزة (الحراري ضمنها) + 15 كشف التسرب الصوتي (ليس من أجهزة التشققات)
+    expect(res.body.data.total).toBe(115);
+    const inc = res.body.data.lines.find((l: { label: string }) => l.label.startsWith('يشمل'));
+    expect(inc.label).toContain('مطرقة شميدت');
+    expect(res.body.data.devices.find((x: { id: string }) => x.id === thermal.id)).toMatchObject({ fee: 0, inPackage: true });
+    // المدير يعدّل سعر "جميع الأجهزة" لهذه الخدمة
+    const links = (await admin.get('/api/v1/admin/site-services/catalog')).body.data.services.find((x: { id: string }) => x.id === cracks.service.id).devices;
+    const body = links.map((l: { deviceId: string; included: boolean; fee: number | null; autoInclude: boolean }) => ({ ...l, fee: l.deviceId === pkg.id ? 50 : l.fee }));
+    expect((await admin.put(`/api/v1/admin/site-services/services/${cracks.service.id}/devices`).send(body)).status).toBe(200);
+    expect((await quote({ serviceIds: [cracks.service.id], zoneId: amman, deviceIds: [pkg.id] })).body.data.total).toBe(85);
   });
 });

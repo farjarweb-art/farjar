@@ -194,6 +194,13 @@ export default function ServiceBook() {
   /** باقة فحص الأجهزة الشامل (إن وُجدت) */
   const pkg = devices.find((x) => x.coversAll);
   const pkgOn = !!pkg && v.deviceIds.includes(pkg.id);
+  /** الأجهزة التي يشملها "جميع الأجهزة": أجهزة هذا الفحص، أو كل الأجهزة إن لم يُربط بالخدمة شيء (نفس قاعدة السيرفر) */
+  const covered = useMemo(() => {
+    const base = sortedDevices.filter((x) => !x.scopePriced);
+    const own = base.filter((x) => x.linked !== false);
+    return own.length ? own : base;
+  }, [sortedDevices]);
+  const coveredIds = useMemo(() => new Set(covered.map((x) => x.id)), [covered]);
   const freeAdds = useMemo(() => {
     if (!s) return [];
     const accIds = new Set(s.devices.filter((x) => v.deviceIds.includes(x.id)).flatMap((x) => x.accessoryIds));
@@ -269,7 +276,7 @@ export default function ServiceBook() {
   const togglePackage = () => {
     if (!pkg || !s) return;
     if (pkgOn) set('deviceIds', v.deviceIds.filter((x) => x !== pkg.id));
-    else set('deviceIds', [pkg.id, ...v.deviceIds.filter((id) => s.devices.find((d) => d.id === id)?.scopePriced)]);
+    else set('deviceIds', [pkg.id, ...v.deviceIds.filter((id) => !coveredIds.has(id))]);
   };
   const chooseService = (slug: string) => {
     setV((x) => (x.slug === slug ? x : { ...x, slug, problemIds: [], deviceIds: [], extraIds: [], requestType: '' }));
@@ -810,7 +817,7 @@ export default function ServiceBook() {
                             ) : sortedDevices.length ? (
                               <div className="space-y-5">
                                 {pkg && (
-                                  <PackageCard device={pkg} count={sortedDevices.filter((x) => !x.scopePriced).length} selected={pkgOn} onToggle={togglePackage} />
+                                  <PackageCard device={pkg} serviceName={s.name} covered={covered} selected={pkgOn} onToggle={togglePackage} />
                                 )}
                                 {[
                                   { key: 'mine', title: `أجهزة مخصصة لـ «${s.name}»`, list: sortedDevices.filter((x) => x.linked !== false) },
@@ -828,10 +835,10 @@ export default function ServiceBook() {
                                             {recommended.has(x.id) && <span className="absolute -top-2 end-3 z-10 rounded-full bg-success px-2 py-0.5 text-[11px] font-bold text-white shadow">مقترح لمشكلتك</span>}
                                             <DeviceCard
                                               device={x}
-                                              mode={pkgOn && !x.scopePriced ? 'locked' : 'select'}
+                                              mode={pkgOn && coveredIds.has(x.id) ? 'locked' : 'select'}
                                               selected={v.deviceIds.includes(x.id)}
                                               onToggle={() => toggle('deviceIds', x.id)}
-                                              note={pkgOn && !x.scopePriced ? 'مشمول في فحص الأجهزة الشامل ✓' : x.accessoryIds.length ? `يشمل مجانًا: ${s.devices.filter((y) => x.accessoryIds.includes(y.id)).map((y) => cleanDeviceName(y.name)).join('، ')} 🎁` : undefined}
+                                              note={pkgOn && coveredIds.has(x.id) ? 'مشمول في «جميع الأجهزة» ✓' : x.accessoryIds.length ? `يشمل مجانًا: ${s.devices.filter((y) => x.accessoryIds.includes(y.id)).map((y) => cleanDeviceName(y.name)).join('، ')} 🎁` : undefined}
                                             />
                                           </div>
                                         ))}
@@ -953,7 +960,7 @@ export default function ServiceBook() {
                         ['نوع الطلب', v.requestType ? REQUEST_TYPE_LABEL[v.requestType] : ''],
                         ['الأولوية', urgencies.length > 1 ? URGENCY_LABEL[v.urgency] : ''],
                         [s?.optionsLabel ? 'الخدمات المطلوبة' : 'المشكلة', s?.problems.filter((p) => v.problemIds.includes(p.id)).map((p) => p.name).join('، ') ?? ''],
-                        ['الأجهزة', s?.devices.length ? (pkgOn ? 'فحص أجهزة شامل — كل أجهزة الفحص' : [...s.devices.filter((x) => v.deviceIds.includes(x.id)), ...freeAdds].map((x) => cleanDeviceName(x.name)).join('، ') || 'بدون أجهزة إضافية') : ''],
+                        ['الأجهزة', s?.devices.length ? [...(pkgOn ? covered : []), ...s.devices.filter((x) => v.deviceIds.includes(x.id) && !x.coversAll), ...freeAdds].filter((x, i, a) => a.findIndex((y) => y.id === x.id) === i).map((x) => cleanDeviceName(x.name)).join('، ') || 'بدون أجهزة إضافية' : ''],
                         ...(s?.formFields ?? []).map((f): [string, string] => [f.label, Array.isArray(extra[f.key]) ? (extra[f.key] as string[]).join('، ') : String(extra[f.key] ?? '')]),
                       ]}
                     />
@@ -1015,9 +1022,10 @@ export default function ServiceBook() {
   );
 }
 
-/** باقة "فحص أجهزة شامل": بطاقة مميزة فوق قائمة الأجهزة */
-function PackageCard({ device: d, count, selected, onToggle }: { device: ServiceDetail['service']['devices'][number]; count: number; selected: boolean; onToggle: () => void }) {
+/** خيار "جميع الأجهزة": يحدد كل أجهزة هذا الفحص دفعة واحدة بسعر واحد */
+function PackageCard({ device: d, serviceName, covered, selected, onToggle }: { device: ServiceDetail['service']['devices'][number]; serviceName: string; covered: ServiceDetail['service']['devices']; selected: boolean; onToggle: () => void }) {
   const [open, setOpen] = useState(false);
+  const separate = covered.reduce((n, x) => n + (x.included ? 0 : x.fee), 0);
   return (
     <>
       <label
@@ -1026,16 +1034,24 @@ function PackageCard({ device: d, count, selected, onToggle }: { device: Service
           selected ? 'border-primary ring-4 ring-primary/30' : 'border-transparent hover:border-primary/60',
         )}
       >
-        <input type="checkbox" className="sr-only" checked={selected} onChange={onToggle} aria-label={cleanDeviceName(d.name)} />
-        {d.imageUrl && <img src={d.imageUrl} alt="" className="aspect-[4/3] w-full object-cover sm:w-56" loading="lazy" />}
+        <input type="checkbox" className="sr-only" checked={selected} onChange={onToggle} aria-label={`جميع الأجهزة — ${serviceName}`} />
+        {d.imageUrl && <img src={d.imageUrl} alt="" className="aspect-[4/3] w-full object-cover sm:w-52 sm:self-stretch" loading="lazy" />}
         <span className="flex flex-1 flex-col gap-2 p-4 sm:p-5">
           <span className="flex flex-wrap items-center gap-2">
             <span className="rounded-full bg-primary px-2.5 py-0.5 text-xs font-bold text-primary-fg">الأوفر</span>
-            <span className="text-xs text-inverse-fg/70">يشمل {count} جهاز فحص</span>
+            {separate > d.fee && <span className="text-xs text-inverse-fg/70">بدل {formatJOD(separate)} منفردة</span>}
           </span>
-          <span className="font-display text-lg font-bold leading-snug">فحص شامل — فحص أجهزة شامل</span>
-          <span className="text-sm text-inverse-fg/75">{d.description || 'كل أجهزة الفحص في زيارة واحدة بسعر واحد.'}</span>
-          <span className="mt-auto flex flex-wrap items-center justify-between gap-3 pt-1">
+          <span className="font-display text-lg font-bold leading-snug">جميع الأجهزة ({covered.length})</span>
+          <span className="text-sm text-inverse-fg/75">اختر كل أجهزة «{serviceName}» دفعة واحدة:</span>
+          <span className="flex flex-wrap gap-1.5">
+            {covered.map((x) => (
+              <span key={x.id} className={cx('rounded-full px-2.5 py-1 text-[12px] leading-none', selected ? 'bg-primary/20 text-primary' : 'bg-inverse-fg/10 text-inverse-fg/85')}>
+                {selected && '✓ '}
+                {cleanDeviceName(x.name)}
+              </span>
+            ))}
+          </span>
+          <span className="mt-auto flex flex-wrap items-center justify-between gap-3 pt-2">
             <span className="font-display text-2xl font-bold text-primary">+ {formatJOD(d.fee)}</span>
             <span className="flex items-center gap-3">
               <button
@@ -1052,17 +1068,35 @@ function PackageCard({ device: d, count, selected, onToggle }: { device: Service
               <span className={cx('inline-flex min-h-[40px] items-center gap-1.5 rounded-full px-4 text-sm font-bold', selected ? 'bg-success text-white' : 'bg-primary text-primary-fg')}>
                 {selected ? (
                   <>
-                    <Icon name="check" className="h-4 w-4" /> تمت الإضافة
+                    <Icon name="check" className="h-4 w-4" /> تم تحديد جميع الأجهزة
                   </>
                 ) : (
-                  'أضف الفحص الشامل'
+                  'تحديد جميع الأجهزة'
                 )}
               </span>
             </span>
           </span>
         </span>
       </label>
-      {open && createPortal(<DeviceDetails device={d} onClose={() => setOpen(false)} action={<Button variant={selected ? 'outline' : 'primary'} onClick={() => { onToggle(); setOpen(false); }}>{selected ? 'إزالة من الزيارة' : 'إضافة للزيارة'}</Button>} />, document.body)}
+      {open &&
+        createPortal(
+          <DeviceDetails
+            device={d}
+            onClose={() => setOpen(false)}
+            action={
+              <Button
+                variant={selected ? 'outline' : 'primary'}
+                onClick={() => {
+                  onToggle();
+                  setOpen(false);
+                }}
+              >
+                {selected ? 'إلغاء تحديد الكل' : 'تحديد جميع الأجهزة'}
+              </Button>
+            }
+          />,
+          document.body,
+        )}
     </>
   );
 }

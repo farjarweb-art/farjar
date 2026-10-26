@@ -515,3 +515,31 @@ export async function seedInspectionV4(prisma: PrismaClient) {
   await prisma.counter.create({ data: { key: marker, value: 1 } });
   console.log('✓ باقة فحص الأجهزة الشامل');
 }
+
+/**
+ * v5 — خيار "جميع الأجهزة" لكل فحص بسعره الخاص: يُربط بكل خدمة لها أجهزة، وسعره المبدئي ≈ 70% من مجموع أجهزتها
+ * (مقرّب لأقرب 5 دنانير). يعدّله المدير من: الخدمة ← الأجهزة ← "رسوم خاصة".
+ */
+export async function seedInspectionV5(prisma: PrismaClient) {
+  const marker = 'seed_inspection_v5';
+  if (await prisma.counter.findUnique({ where: { key: marker } })) return;
+  const pkg = await prisma.serviceDevice.findUnique({ where: { code: 'full_device_package' } });
+  if (pkg) {
+    if (pkg.name.startsWith('فحص أجهزة شامل')) {
+      await prisma.serviceDevice.update({
+        where: { id: pkg.id },
+        data: { name: 'جميع الأجهزة — فحص أجهزة شامل', description: 'اختيار كل أجهزة هذا الفحص دفعة واحدة بسعر واحد أوفر.' },
+      });
+    }
+    const services = await prisma.siteService.findMany({ where: { deletedAt: null }, include: { devices: { include: { device: true } } } });
+    for (const s of services) {
+      const own = s.devices.filter((l) => l.device.active && !l.device.coversAll && !l.device.scopePriced && !l.device.parentId && !l.autoInclude && !l.included);
+      if (own.length < 2 || s.devices.some((l) => l.deviceId === pkg.id)) continue;
+      const sum = own.reduce((n, l) => n + Number(l.fee ?? l.device.fee), 0);
+      const fee = Math.max(10, Math.round((sum * 0.7) / 5) * 5);
+      await prisma.serviceDeviceLink.create({ data: { serviceId: s.id, deviceId: pkg.id, fee: D(fee) } });
+    }
+  }
+  await prisma.counter.create({ data: { key: marker, value: 1 } });
+  console.log('✓ خيار جميع الأجهزة لكل فحص');
+}

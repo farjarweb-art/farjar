@@ -4359,6 +4359,12 @@ export const EN_TEXT: Record<string, string> = {
   "تشخيص كامل للعقار في زيارة واحدة دون زيارات إضافية": "Full property diagnosis in a single visit, no extra visits",
   "لا داعي لمعرفة الجهاز المناسب — الفني يختار حسب الحالة": "No need to know which device fits — the technician chooses on site",
   "تقرير فني شامل بقراءات كل الفحوصات": "A full technical report with readings from every test",
+  "تم تحديد جميع الأجهزة": "All devices selected",
+  "تحديد جميع الأجهزة": "Select all devices",
+  "إلغاء تحديد الكل": "Unselect all",
+  "مشمول في «جميع الأجهزة» ✓": "Included in “All devices” ✓",
+  "جميع الأجهزة — فحص أجهزة شامل": "All devices — comprehensive device inspection",
+  "اختيار كل أجهزة هذا الفحص دفعة واحدة بسعر واحد أوفر.": "Select all of this inspection's devices at once for one better price.",
 };
 
 /** نصوص فيها قيم متغيرة: {0} {1} … */
@@ -4738,4 +4744,8 @@ export const EN_PATTERNS: [string, string][] = [
   ["اختر الخدمة — {0}", "Choose the service — {0}"],
   ["يشمل {0} جهاز فحص", "Includes {0} inspection devices"],
   ["يشمل كل أجهزة الفحص ({0} جهاز)", "Includes all inspection devices ({0})"],
+  ["جميع الأجهزة ({0})", "All devices ({0})"],
+  ["اختر كل أجهزة «{0}» دفعة واحدة:", "Select all devices of “{0}” at once:"],
+  ["بدل {0} منفردة", "instead of {0} separately"],
+  ["يشمل {0} أجهزة: {1}", "Includes {0} devices: {1}"],
 ];

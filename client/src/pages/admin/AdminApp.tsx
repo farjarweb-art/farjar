@@ -28,6 +28,7 @@ const P = {
   ServiceRequestDetail: () => import('./ServiceRequestDetail'),
   ServiceRequestPrint: () => import('./ServiceRequestPrint'),
   SiteServices: () => import('./SiteServices'),
+  Packages: () => import('./Packages'),
   Settings: () => import('./Settings'),
   Logs: () => import('./Logs'),
   Newsletter: () => import('./Newsletter'),
@@ -83,6 +84,7 @@ const ServiceRequests = lazy(P.ServiceRequests);
 const ServiceRequestDetail = lazy(P.ServiceRequestDetail);
 const ServiceRequestPrint = lazy(P.ServiceRequestPrint);
 const SiteServices = lazy(P.SiteServices);
+const PackagesAdmin = lazy(P.Packages);
 const Settings = lazy(P.Settings);
 const Logs = lazy(P.Logs);
 const Newsletter = lazy(P.Newsletter);
@@ -215,6 +217,7 @@ const ADMIN_PREFETCH: [RegExp, () => Promise<unknown>, boolean][] = [
   [/^\/admin\/service-requests\/?$/, P.ServiceRequests, true],
   [/^\/admin\/service-requests\/[^/]+$/, P.ServiceRequestDetail, false],
   [/^\/admin\/site-services/, P.SiteServices, false],
+    [/^\/admin\/packages/, P.Packages, false],
   [/^\/admin\/settings\/?$/, P.Settings, true],
   [/^\/admin\/logs\/?$/, P.Logs, true],
   [/^\/admin\/newsletter\/?$/, P.Newsletter, false],
@@ -256,6 +259,7 @@ export default function AdminApp() {
           <Route path="service-requests/:id" element={s(<ServiceRequestDetail />)} />
           <Route path="service-requests/:id/print" element={s(<ServiceRequestPrint />)} />
           <Route path="site-services" element={s(<SiteServices />)} />
+          <Route path="packages" element={s(<PackagesAdmin />)} />
           <Route path="orders" element={s(<Orders />)} />
           <Route path="orders/:id" element={s(<OrderDetail />)} />
           <Route path="products" element={s(<Products />)} />

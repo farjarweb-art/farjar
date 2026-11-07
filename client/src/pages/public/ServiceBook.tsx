@@ -8,9 +8,11 @@ import { LocationPicker } from '../../components/forms/LocationPicker';
 import { SlotPicker, longDate } from '../../components/forms/SlotPicker';
 import { MB, focusFirstError } from '../../components/forms/formUtils';
 import { DeviceCard, DeviceDetails } from '../../components/services/DeviceCard';
+import { PackagesShowcase } from '../../components/services/Packages';
 import { PriceSummary } from '../../components/services/PriceSummary';
 import { Alert, Breadcrumbs, Button, Checkbox, ChoiceGroup, ErrorState, Icon, Input, Select, Skeleton, Stepper, Textarea } from '../../components/ui';
 import { ApiError, api, toFormData } from '../../lib/api';
+import { useI18n } from '../../lib/i18n';
 import { cx, formatDate, formatJOD, formatSlot, isValidPhone } from '../../lib/format';
 import {
   REQUEST_TYPE_LABEL,
@@ -22,6 +24,7 @@ import {
   cleanDeviceName,
   mapsLink,
   normalizeDetail,
+  pickLang,
   type Audience,
   type ClientType,
   type FormField,
@@ -128,6 +131,7 @@ export default function ServiceBook() {
   const [areaOther, setAreaOther] = useState(false);
   /** قائمة الخدمات مفتوحة حتى يختار العميل خدمة، ثم تُطوى لتظهر تفاصيلها مباشرة */
   const [pickOpen, setPickOpen] = useState(() => !(routeSlug || params.get('service')));
+  const [singlesOpen, setSinglesOpen] = useState(false);
   const [mapLink, setMapLink] = useState('');
   const [mapLinkState, setMapLinkState] = useState<{ loading?: boolean; error?: string; ok?: boolean }>({});
   const [photos, setPhotos] = useState<File[]>([]);
@@ -160,7 +164,8 @@ export default function ServiceBook() {
   const property = PROPERTIES.find((p) => p.label === v.propertyType);
   const audience: Audience = tab;
   const properties = PROPERTIES.filter((p) => p.audience === tab);
-  const services = useMemo(() => (c ? c.services.filter((x) => x.audiences.includes(tab)) : []), [c, tab]);
+  /** الفحوصات المتخصصة المنفردة (النظام السابق) — الباقات تُعرض فوقها */
+  const services = useMemo(() => (c ? c.services.filter((x) => (x.kind ?? 'SERVICE') === 'SERVICE' && x.audiences.includes(tab)) : []), [c, tab]);
   const zone = c?.zones.find((z) => z.id === v.zoneId);
 
   // خدمة محددة مسبقًا (من الصفحة الرئيسية أو صفحة الخدمة): نفتح قسمها
@@ -645,10 +650,26 @@ export default function ServiceBook() {
 
                 {step === 0 && (
                   <div className="space-y-7">
-                    <StepHeading stepKey={step} title="اختر الفحص أو الخدمة" description="مثل فحص الماء والتسربات، فحص العقار قبل الشراء، أو الفحص الشامل — ثم أضف الأجهزة التي تريدها." />
-                    <Alert tone="info" title="زيارة الكشف الفني الأساسي">
-                      تشمل الزيارة معاينة الموقع وتقريرًا بحالته وتقديم عرض سعر للأعمال المطلوبة. سعر الزيارة يظهر على كل خدمة، والإجمالي النهائي يظهر قبل التأكيد.
-                    </Alert>
+                    <StepHeading stepKey={step} title="اختر الباقة" description="ابدأ بإحدى الباقات الفنية، أو اختر فحصًا متخصصًا منفردًا — ثم أضف الأجهزة التي تريدها." />
+                    <div data-field="slug">
+                      {pickOpen || !v.slug ? (
+                        <div className="space-y-4">
+                          <div className="rounded-2xl bg-[#0f0f0f] p-2.5 sm:p-4">
+                            <PackagesShowcase services={c.services} selectedSlug={v.slug} onSelect={chooseService} onBrowseSingles={() => setSinglesOpen(true)} />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setSinglesOpen((x) => !x)}
+                            aria-expanded={singlesOpen}
+                            className="flex min-h-[48px] w-full items-center justify-between gap-2 rounded-xl border border-line-strong px-4 text-start font-semibold hover:border-ink/50"
+                          >
+                            <span className="flex items-center gap-2">
+                              <Icon name="search" className="h-4 w-4 text-brand-700 dark:text-primary" /> أو اختر فحصًا متخصصًا منفردًا
+                            </span>
+                            <Icon name="chevronDown" className={cx('h-4 w-4 transition-transform', singlesOpen && 'rotate-180')} />
+                          </button>
+                          {singlesOpen && (
+                            <div className="anim-fade space-y-4">
                     <div role="tablist" aria-label="نوع العقار" className="grid grid-cols-2 gap-1 rounded-xl bg-inverse p-1">
                       {(
                         [
@@ -673,7 +694,7 @@ export default function ServiceBook() {
                         </button>
                       ))}
                     </div>
-                    <fieldset data-field="slug">
+                    <fieldset>
                       <legend className="label">اختر الخدمة — {audience === 'BUSINESS' ? 'شركات ومصانع' : 'منازل وشقق'}</legend>
                       <div key={tab} className="anim-fade grid gap-2 sm:grid-cols-2">
                         {services.filter((x) => pickOpen || !v.slug || x.slug === v.slug).map((x) => {
@@ -706,13 +727,15 @@ export default function ServiceBook() {
                           );
                         })}
                       </div>
-                      {!pickOpen && v.slug && (
-                        <button type="button" onClick={() => setPickOpen(true)} className="mt-2 inline-flex min-h-[40px] items-center gap-1.5 text-sm font-semibold text-brand-700 hover:underline dark:text-brand-300">
-                          <Icon name="refresh" className="h-4 w-4" /> تغيير الخدمة (عرض كل الخدمات)
-                        </button>
+                    </fieldset>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <SelectedChoice item={c.services.find((x) => x.slug === v.slug)} zone={zone} onChange={() => setPickOpen(true)} />
                       )}
                       {err('slug') && <p className="mt-1.5 text-sm text-danger">{err('slug')}</p>}
-                    </fieldset>
+                    </div>
 
                     {v.slug && !s && !detail.error && <Skeleton className="h-48 w-full" />}
                     {detail.error && v.slug && <ErrorState message={detail.error.message} onRetry={detail.reload} />}
@@ -1098,6 +1121,27 @@ function PackageCard({ device: d, serviceName, covered, selected, onToggle }: { 
           document.body,
         )}
     </>
+  );
+}
+
+/** الباقة / الخدمة المختارة مطويةً، مع زر التغيير */
+function SelectedChoice({ item, zone, onChange }: { item?: ServiceCard; zone?: Zone; onChange: () => void }) {
+  const { lang } = useI18n();
+  if (!item) return null;
+  const isPackage = item.kind === 'PACKAGE' || item.kind === 'ADDON';
+  const price = item.priceOnRequest ? SCOPE_PRICED : formatJOD(zone?.tier === 'OUTSIDE_AMMAN' ? item.priceOutside : item.priceInside);
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-2xl border-2 border-primary bg-[#191919] p-3.5 text-white">
+      {item.imageUrl && <img src={item.imageUrl} alt="" className="h-14 w-16 shrink-0 rounded-lg object-cover" />}
+      <span className="min-w-0 flex-1">
+        <span className="block text-xs font-semibold text-primary">{isPackage ? 'الباقة المختارة' : 'الفحص المختار'}</span>
+        <span className="block font-bold leading-snug">{pickLang(lang, item.name, item.nameEn)}</span>
+      </span>
+      <span className="font-display text-xl font-bold text-primary">{price}</span>
+      <button type="button" onClick={onChange} className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-white/25 px-3 text-sm font-semibold hover:border-white/60">
+        <Icon name="refresh" className="h-4 w-4" /> تغيير
+      </button>
+    </div>
   );
 }
 

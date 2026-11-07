@@ -543,3 +543,179 @@ export async function seedInspectionV5(prisma: PrismaClient) {
   await prisma.counter.create({ data: { key: marker, value: 1 } });
   console.log('✓ خيار جميع الأجهزة لكل فحص');
 }
+
+/** v6 — الباقات الفنية الثلاث: واجهة الموقع الرئيسية وأول خطوة في الحجز (كل شيء يُعدّل من "إدارة الباقات") */
+const PACKAGE_REASONS: [string, string[]][] = [
+  ['رطوبة أو تسرب مياه', ['thermal_inspection', 'electronic_moisture_testing', 'spherical_moisture_testing', 'acoustic_leak_detection']],
+  ['تشققات أو هبوط في العقار', ['digital_angle_finder_inspection', 'laser_level_inspection', 'schmidt_hammer_inspection']],
+  ['مشكلة كهربائية', ['electrical_clamp_meter_inspection', 'uni_t_ut122_multimeter_inspection', 'thermal_inspection']],
+  ['مشكلة مياه أو صرف صحي', ['pipe_pressure_testing', 'acoustic_leak_detection', 'sewage_endoscope_inspection', 'sewage_test_ball_inspection']],
+  ['فحص قبل الشراء أو الاستئجار', []],
+  ['رفع كفاءة العقار أو فحص دوري', []],
+];
+
+type PackageSeed = {
+  slug: string;
+  name: string;
+  nameEn: string;
+  price: number;
+  summary: string;
+  summaryEn: string;
+  includes: string[];
+  includesEn: string[];
+  devices: string[];
+  image: string;
+  icon: string;
+  featured?: boolean;
+  sortOrder: number;
+};
+
+const PACKAGES: PackageSeed[] = [
+  {
+    slug: 'basic-package',
+    name: 'الباقة الأساسية',
+    nameEn: 'Basic Package',
+    price: 50,
+    summary: 'كشف ميداني على العقار وتحديد مشاكل الرطوبة والتسريبات بالتصوير الحراري، مع تقرير فني وعرض سعر للإصلاح.',
+    summaryEn: 'An on-site inspection that finds moisture and leaks with thermal imaging, with a technical report and a repair quote.',
+    includes: [
+      'الكشف عن مشاكل الرطوبة باستخدام جهاز التصوير الحراري',
+      'قياس مستوى الرطوبة داخل الجدران',
+      'الكشف الميداني على العقار',
+      'تحديد الملاحظات المتعلقة بمياه الأمطار والتسريبات الداخلية',
+      'إعداد تقرير فني',
+      'تقديم عرض سعر من فرجار جروب للإصلاحات المطلوبة',
+    ],
+    includesEn: [
+      'Moisture detection with a thermal imaging camera',
+      'Measuring moisture levels inside walls',
+      'On-site inspection of the property',
+      'Notes on rainwater and internal leaks',
+      'A technical report',
+      'A repair quote from Farjar Group',
+    ],
+    devices: ['thermal_inspection', 'electronic_moisture_testing'],
+    image: 'thermal-imager',
+    icon: 'home',
+    sortOrder: 0,
+  },
+  {
+    slug: 'advanced-package',
+    name: 'باقة الفحص المتقدم',
+    nameEn: 'Advanced Inspection Package',
+    price: 100,
+    summary: 'تصوير حراري وفحص ضغط خطوط المياه وفحص خط الكهرباء الرئيسي، مع تقرير فني شامل وعرض سعر لكل الإصلاحات.',
+    summaryEn: 'Thermal imaging, water-line pressure testing and a main electrical line check, with a full technical report and a quote for all repairs.',
+    includes: [
+      'الفحص بجهاز التصوير الحراري',
+      'فحص ضغط خطوط المياه باستخدام جهاز اختبار الضغط',
+      'تحديد إحداثيات ومواقع الرطوبة والتسريبات',
+      'فحص خط الكهرباء الرئيسي والتحقق من مؤشرات تسرب التيار أو فقدانه وعكس الأقطاب',
+      'تحديد الملاحظات الوقائية المتعلقة بمياه الأمطار والتسريبات الداخلية',
+      'إعداد تقرير فني شامل',
+      'تقديم عرض سعر لجميع الإصلاحات المطلوبة',
+      'إمكانية تنفيذ الإصلاحات من خلال فرجار جروب بعد اعتماد عرض السعر',
+    ],
+    includesEn: [
+      'Thermal imaging inspection',
+      'Water-line pressure testing with a pressure test kit',
+      'Mapping the coordinates and locations of moisture and leaks',
+      'Main electrical line check: current leakage or loss and reversed polarity',
+      'Preventive notes on rainwater and internal leaks',
+      'A full technical report',
+      'A quote for all required repairs',
+      'Repairs by Farjar Group after you approve the quote',
+    ],
+    devices: ['thermal_inspection', 'pipe_pressure_testing', 'electronic_moisture_testing', 'electrical_clamp_meter_inspection', 'uni_t_ut122_multimeter_inspection'],
+    image: 'pressure-pump',
+    icon: 'gear',
+    featured: true,
+    sortOrder: 1,
+  },
+  {
+    slug: 'comprehensive-package',
+    name: 'الباقة الشاملة',
+    nameEn: 'Comprehensive Package',
+    price: 150,
+    summary: 'لفحص العقارات قبل الشراء أو تقييم ورفع كفاءة الشقق والفلل والمباني — بخبرة فرجار جروب التي تتجاوز 13 عامًا في السوق الأردني.',
+    summaryEn: 'For pre-purchase inspections or assessing and upgrading apartments, villas and buildings — backed by Farjar Group’s 13+ years in the Jordanian market.',
+    includes: [
+      'فحص شامل للحالة الفنية للعقار',
+      'فحص مشاكل الكهرباء والتمديدات الداخلية وضعف الأسلاك وانقطاع التيار',
+      'فحص شبكة الصرف الصحي',
+      'الفحص الصوتي للكشف عن تسربات المياه وتحديد مواقعها بأجهزة الاستماع الصوتي المتخصصة',
+      'الفحص الحراري وتحديد مواقع الرطوبة والتسريبات',
+      'تحديد إحداثيات الملاحظات الفنية في الموقع',
+      'دراسة الملاحظات الإنشائية الظاهرة ضمن نطاق الفحص',
+      'دراسة حالة الأسطح والعزل الخارجي والحماية من مياه الأمطار',
+      'تحديد الملاحظات الوقائية التي قد تؤثر على سلامة العقار أو كفاءته مستقبلًا',
+      'إعداد تقرير فني تفصيلي',
+      'تقديم عرض سعر لجميع أعمال الصيانة والإصلاح',
+    ],
+    includesEn: [
+      'A full technical condition survey of the property',
+      'Electrical and internal wiring issues, weak cables and power cuts',
+      'Sewage network inspection',
+      'Acoustic leak detection and pinpointing with specialised listening devices',
+      'Thermal inspection to locate moisture and leaks',
+      'Recording the coordinates of technical findings on site',
+      'Review of visible structural findings within the inspection scope',
+      'Roof, external insulation and rainwater protection review',
+      'Preventive notes that may affect the property’s safety or efficiency',
+      'A detailed technical report',
+      'A quote for all maintenance and repair works',
+    ],
+    devices: [
+      'thermal_inspection', 'acoustic_leak_detection', 'sewage_endoscope_inspection', 'sewage_test_ball_inspection', 'electronic_moisture_testing',
+      'spherical_moisture_testing', 'electrical_clamp_meter_inspection', 'uni_t_ut122_multimeter_inspection', 'digital_angle_finder_inspection',
+      'laser_level_inspection', 'crack_width_gauge_free',
+    ],
+    image: 'full-device-package',
+    icon: 'shield',
+    sortOrder: 2,
+  },
+];
+
+export async function seedInspectionV6(prisma: PrismaClient) {
+  const marker = 'seed_packages_v6';
+  if (await prisma.counter.findUnique({ where: { key: marker } })) return;
+  const devices = await prisma.serviceDevice.findMany({ select: { id: true, code: true } });
+  const idOf = (c: string) => devices.find((d) => d.code === c)?.id;
+  const uv = idOf('uv_light_inspection_free');
+  for (const p of PACKAGES) {
+    if (await prisma.siteService.findUnique({ where: { slug: p.slug } })) continue;
+    const s = await prisma.siteService.create({
+      data: {
+        slug: p.slug,
+        kind: 'PACKAGE',
+        name: p.name,
+        nameEn: p.nameEn,
+        summary: p.summary,
+        summaryEn: p.summaryEn,
+        includes: p.includes.join('\n'),
+        includesEn: p.includesEn.join('\n'),
+        audiences: ['HOME', 'BUSINESS'],
+        requestTypes: ['INSPECTION_REPORT'],
+        priceInside: D(p.price),
+        priceOutside: D(p.price),
+        durationMinutes: 90 + p.sortOrder * 45,
+        deliverables: 'تقرير فني\nعرض سعر للإصلاحات المطلوبة',
+        terms: 'سعر الباقة يشمل الفحوصات المذكورة ضمن نطاق الزيارة، ولا يشمل أعمال الإصلاح أو المواد. أي فحص إضافي يُعرض عليك بسعره قبل تنفيذه.',
+        optionsLabel: 'سبب طلب الفحص (يمكن اختيار أكثر من سبب)',
+        imageUrl: IMG(p.image),
+        icon: p.icon,
+        featured: !!p.featured,
+        sortOrder: p.sortOrder,
+      },
+    });
+    const included = [...new Set([...p.devices.map(idOf), uv])].filter(Boolean) as string[];
+    await prisma.serviceDeviceLink.createMany({ data: included.map((deviceId) => ({ serviceId: s.id, deviceId, included: true })) });
+    for (const [i, [name, codes]] of [...PACKAGE_REASONS, ['سبب آخر أو لا أعرف سبب المشكلة', []] as [string, string[]]].entries()) {
+      await prisma.serviceProblem.create({
+        data: { serviceId: s.id, name, isOther: i === PACKAGE_REASONS.length, sortOrder: i, devices: { connect: codes.map(idOf).filter(Boolean).map((id) => ({ id: id! })) } },
+      });
+    }
+  }
+  await prisma.counter.create({ data: { key: marker, value: 1 } });
+  console.log('✓ الباقات الفنية الثلاث');
+}

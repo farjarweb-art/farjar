@@ -73,6 +73,12 @@ siteServicesAdminRouter.get(
 
 const serviceInput = z.object({
   name: text(160).min(3, 'اكتب اسم الخدمة'),
+  /** خدمة منفردة / باقة رئيسية / باقة إضافية */
+  kind: z.enum(['SERVICE', 'PACKAGE', 'ADDON']).default('SERVICE'),
+  nameEn: text(160).default(''),
+  summaryEn: text(400).default(''),
+  includesEn: text(3000).default(''),
+  icon: z.string().trim().max(30).nullable().optional(),
   summary: text(400).default(''),
   includes: text(3000).default(''),
   audiences: z.array(z.enum(AUDIENCES)).min(1, 'اختر قسمًا واحدًا على الأقل (منازل أو شركات)'),
@@ -164,6 +170,63 @@ siteServicesAdminRouter.patch(
     await logPrices(req, 'service', s.id, s.name, priceFields(before), priceFields(s));
     await audit({ actorType: 'admin', actorId: req.auth!.sub, action: 'update', entity: 'site_service', entityId: s.id });
     ok(res, { id: s.id });
+  }),
+);
+
+/** صورة الباقة / الخدمة */
+siteServicesAdminRouter.post(
+  '/services/:id/image',
+  uploadGuard(10),
+  memoryUpload(8, 1).single('file'),
+  asyncHandler(async (req, res) => {
+    const s = await prisma.siteService.findFirst({ where: { id: req.params.id, deletedAt: null } });
+    if (!s) throw notFound('الخدمة غير موجودة');
+    if (!req.file) throw badRequest('اختر صورة');
+    const [img] = await validateAndStore([req.file], POLICIES.photos, 'services/packages');
+    await prisma.siteService.update({ where: { id: s.id }, data: { imageUrl: img.url, imagePublicId: img.publicId } });
+    if (s.imagePublicId) await deleteStored(s.imagePublicId);
+    await audit({ actorType: 'admin', actorId: req.auth!.sub, action: 'update_image', entity: 'site_service', entityId: s.id });
+    ok(res, { imageUrl: img.url });
+  }),
+);
+
+siteServicesAdminRouter.delete(
+  '/services/:id/image',
+  asyncHandler(async (req, res) => {
+    const s = await prisma.siteService.findFirst({ where: { id: req.params.id, deletedAt: null } });
+    if (!s) throw notFound('الخدمة غير موجودة');
+    await prisma.siteService.update({ where: { id: s.id }, data: { imageUrl: null, imagePublicId: null } });
+    if (s.imagePublicId) await deleteStored(s.imagePublicId);
+    ok(res, { deleted: true });
+  }),
+);
+
+/** نسخة من باقة/خدمة (بمحتواها وأجهزتها وأسباب الفحص) — تُنشأ موقوفة حتى يراجعها المدير وينشرها */
+siteServicesAdminRouter.post(
+  '/services/:id/duplicate',
+  asyncHandler(async (req, res) => {
+    const s = await prisma.siteService.findFirst({ where: { id: req.params.id, deletedAt: null }, include: { problems: { include: { devices: { select: { id: true } } } }, devices: true } });
+    if (!s) throw notFound('الخدمة غير موجودة');
+    const { id: _id, slug: _slug, createdAt: _c, updatedAt: _u, deletedAt: _d, problems, devices, imagePublicId: _p, formFields, ...rest } = s;
+    let slug = slugify(`${s.name} نسخة`);
+    if (await prisma.siteService.findUnique({ where: { slug } })) slug = `${slug}-${randomSuffix()}`;
+    const copy = await prisma.siteService.create({
+      data: {
+        ...rest,
+        formFields: formFields as Prisma.InputJsonValue,
+        slug,
+        name: `${s.name} (نسخة)`,
+        nameEn: s.nameEn ? `${s.nameEn} (copy)` : '',
+        active: false,
+        featured: false,
+        sortOrder: s.sortOrder + 1,
+        devices: { create: devices.map(({ serviceId: _s, ...l }) => l) },
+        problems: { create: problems.map((p) => ({ name: p.name, description: p.description, isOther: p.isOther, quoteRequired: p.quoteRequired, sortOrder: p.sortOrder, active: p.active, devices: { connect: p.devices } })) },
+      },
+    });
+    await logPrices(req, 'service', copy.id, copy.name, null, priceFields(copy));
+    await audit({ actorType: 'admin', actorId: req.auth!.sub, action: 'duplicate', entity: 'site_service', entityId: copy.id, meta: { from: s.id } });
+    ok(res, { id: copy.id, slug: copy.slug }, 201);
   }),
 );
 

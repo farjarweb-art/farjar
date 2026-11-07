@@ -112,11 +112,25 @@ export function statusTone(s: SrStatus): 'neutral' | 'brand' | 'sand' | 'danger'
 
 export const QUOTE_STATUS_LABEL: Record<QuoteStatus, string> = { DRAFT: 'مسودة', SENT: 'بانتظار الرد', ACCEPTED: 'مقبول', REJECTED: 'مرفوض' };
 
+export type ServiceKind = 'SERVICE' | 'PACKAGE' | 'ADDON';
+
+/** محتوى الباقة بلغة الواجهة (الإنجليزي إن وُجد، وإلا العربي) */
+export const pickLang = (lang: string, ar: string, en?: string | null) => (lang === 'en' && en?.trim() ? en : ar);
+export const pickLines = (lang: string, ar: string[], en?: string[] | null) => (lang === 'en' && en?.length ? en : ar);
+
 export type ServiceCard = {
   id: string;
   name: string;
   slug: string;
   summary: string;
+  kind?: ServiceKind;
+  nameEn?: string;
+  summaryEn?: string;
+  includes?: string[];
+  includesEn?: string[];
+  imageUrl?: string | null;
+  icon?: string | null;
+  sortOrder?: number;
   audiences: Audience[];
   priceInside: number;
   priceOutside: number;
@@ -169,6 +183,12 @@ export type ServiceDetail = {
     name: string;
     slug: string;
     summary: string;
+    kind?: ServiceKind;
+    nameEn?: string;
+    summaryEn?: string;
+    includesEn?: string[];
+    imageUrl?: string | null;
+    icon?: string | null;
     includes: string[];
     audiences: Audience[];
     requestTypes: { value: RequestType; label: string }[];
@@ -290,7 +310,7 @@ export type RequestCore = {
   problemLocation: string | null;
   notes: string | null;
   scheduledAt: string;
-  services: { id: string; name: string; slug: string }[];
+  services: { id: string; name: string; slug: string; kind?: ServiceKind; includes?: string[] }[];
   problems: { id: string; name: string }[];
   devices: { id: string; name: string; fee: number; included: boolean }[];
   extra: ExtraAnswer[];

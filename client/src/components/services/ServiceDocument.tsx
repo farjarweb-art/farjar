@@ -63,6 +63,7 @@ export function ServiceDocument({ request: r, kind, quote, back }: { request: Re
         <Grid
           rows={[
             ['الخدمة', r.services.map((s) => s.name).join('، ')],
+            ['ما تشمله الباقة', r.services.flatMap((s) => s.includes ?? []).join(' • ') || undefined],
             ['نوع الطلب', r.requestTypeLabel],
             ['المشكلة / الخدمات', r.problems.map((p) => p.name).join('، ') || r.description],
             ['مكان المشكلة', r.problemLocation],

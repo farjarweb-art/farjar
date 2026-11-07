@@ -25,7 +25,8 @@ export default function Services() {
     setParams(next, { replace: true });
   };
   const { data, error, loading, reload } = useAsync(() => api.get<{ services: ServiceCard[] }>('/site-services'), [], 'site-services');
-  const list = (data?.services ?? []).filter((s) => s.audiences.includes(tab));
+  // الفحوصات المتخصصة المنفردة — الباقات الفنية في الصفحة الرئيسية وأول الحجز
+  const list = (data?.services ?? []).filter((s) => (s.kind ?? 'SERVICE') === 'SERVICE' && s.audiences.includes(tab));
   const featured = list.filter((s) => s.featured);
   const rest = list.filter((s) => !s.featured);
 

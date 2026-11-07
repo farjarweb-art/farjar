@@ -14,6 +14,7 @@ type Service = {
   id: string;
   name: string;
   slug: string;
+  kind?: 'SERVICE' | 'PACKAGE' | 'ADDON';
   summary: string;
   includes: string;
   audiences: Audience[];
@@ -143,7 +144,9 @@ const blankService = (): Omit<Service, 'id' | 'slug' | 'problems' | 'devices'> =
 });
 
 function ServicesTab({ c, canEdit, reload }: TabProps) {
-  const [edit, setEdit] = useState<Service | 'new' | null>(null);
+  // ?edit=<id> يفتح خدمة/باقة مباشرة (رابط من صفحة إدارة الباقات)
+  const [params] = useSearchParams();
+  const [edit, setEdit] = useState<Service | 'new' | null>(() => c.services.find((s) => s.id === params.get('edit')) ?? null);
   return (
     <Panel
       title={`الخدمات (${c.services.length})`}
@@ -158,7 +161,7 @@ function ServicesTab({ c, canEdit, reload }: TabProps) {
             inactive={!s.active}
             title={
               <>
-                {s.name} {s.featured && <Tag tone="brand">قسم رئيسي</Tag>} {!s.active && <Tag>موقوفة</Tag>}
+                {s.name} {s.kind === 'PACKAGE' && <Tag tone="dark">باقة</Tag>} {s.kind === 'ADDON' && <Tag tone="dark">باقة إضافية</Tag>} {s.featured && <Tag tone="brand">قسم رئيسي</Tag>} {!s.active && <Tag>موقوفة</Tag>}
               </>
             }
             sub={`${s.audiences.map((a) => (a === 'HOME' ? 'منازل' : 'شركات ومصانع')).join(' + ')} · ${s.problems.length} مشكلة · ${s.devices.length} جهاز`}

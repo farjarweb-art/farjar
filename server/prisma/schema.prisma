@@ -2119,6 +2119,12 @@ enum ServiceQuoteStatus {
   REJECTED
 }
 
+enum ServiceKind {
+  SERVICE // خدمة منفردة (النظام السابق)
+  PACKAGE // باقة رئيسية تظهر في الصفحة الرئيسية وأول الحجز
+  ADDON // باقة إضافية متخصصة
+}
+
 model SiteService {
   id              String               @id @default(cuid())
   name            String
@@ -2154,6 +2160,16 @@ model SiteService {
   deliverables    String               @default("")
   /// حقول إضافية في نموذج الحجز: [{ key, label, type: text|textarea|number|select|multiselect, options?, required?, hint? }]
   formFields      Json                 @default("[]")
+  /// نوع العرض: خدمة منفردة، باقة رئيسية (واجهة الموقع)، أو باقة إضافية متخصصة
+  kind            ServiceKind          @default(SERVICE)
+  /// المحتوى بالإنجليزية (فارغ = يُستخدم العربي)
+  nameEn          String               @default("")
+  summaryEn       String               @default("")
+  includesEn      String               @default("")
+  /// صورة البطاقة (رسم مرفق أو صورة يرفعها المدير) وأيقونة العنوان
+  imageUrl        String?
+  imagePublicId   String?
+  icon            String?
   sortOrder       Int                  @default(0)
   active          Boolean              @default(true)
   createdAt       DateTime             @default(now())

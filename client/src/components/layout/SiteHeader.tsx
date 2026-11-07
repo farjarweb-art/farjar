@@ -100,7 +100,10 @@ export function SiteHeader() {
         </div>
 
         <div className="container flex h-16 items-center justify-between gap-4 lg:h-[4.5rem]">
-          <Logo splashAnchor />
+          <div className="flex min-w-0 items-center gap-1.5">
+            <BackButton />
+            <Logo splashAnchor />
+          </div>
 
           <nav className="hidden xl:block" aria-label={t('nav.menu')}>
             <ul className="flex items-center">
@@ -394,5 +397,28 @@ function MenuSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/** زر الرجوع للصفحة السابقة (يظهر في كل الصفحات عدا الرئيسية) — بدون سجل سابق يرجع للرئيسية */
+function BackButton() {
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  if (pathname === '/') return null;
+  const back = () => {
+    const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0;
+    if (idx > 0) navigate(-1);
+    else navigate('/');
+  };
+  return (
+    <button
+      type="button"
+      onClick={back}
+      className="-ms-2 grid h-10 w-10 shrink-0 place-items-center rounded-lg text-ink transition-colors hover:bg-subtle"
+      aria-label="رجوع"
+      title="رجوع"
+    >
+      <Icon name="arrowRight" className="h-5 w-5 ltr:rotate-180" />
+    </button>
   );
 }

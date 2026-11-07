@@ -22,6 +22,7 @@ import { dateField, nameField, optionalText, phoneField, requiredText, timeField
 export const siteServicesRouter = Router();
 
 const num = (d: Prisma.Decimal | null) => (d == null ? null : Number(d));
+const lines = (t: string) => t.split('\n').map((l) => l.trim()).filter(Boolean);
 
 /** الشروط العامة التي يوافق عليها العميل قبل التأكيد */
 export const GENERAL_TERMS = [
@@ -44,14 +45,14 @@ siteServicesRouter.get(
     const services = await prisma.siteService.findMany({
       where: { active: true, deletedAt: null },
       orderBy: [{ featured: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
-      select: { id: true, name: true, slug: true, summary: true, audiences: true, requestTypes: true, priceInside: true, priceOutside: true, priceUrgent: true, priceEmergency: true, discountPercent: true, featured: true, priceOnRequest: true, _count: { select: { problems: true } } },
+      select: { id: true, name: true, slug: true, summary: true, kind: true, nameEn: true, summaryEn: true, includes: true, includesEn: true, imageUrl: true, icon: true, sortOrder: true, audiences: true, requestTypes: true, priceInside: true, priceOutside: true, priceUrgent: true, priceEmergency: true, discountPercent: true, featured: true, priceOnRequest: true, _count: { select: { problems: true } } },
     });
     const zones = await prisma.serviceZone.findMany({ where: { active: true }, orderBy: { sortOrder: 'asc' }, select: { id: true, name: true, tier: true, travelFee: true, requiresApproval: true, regions: true } });
     ok(res, {
       zones: zones.map((z) => ({ ...z, travelFee: num(z.travelFee) })),
       ownershipOptions: OWNERSHIP_OPTIONS,
       generalTerms: GENERAL_TERMS,
-      services: services.map(({ _count, ...s }) => ({ ...s, priceInside: num(s.priceInside), priceOutside: num(s.priceOutside), priceUrgent: num(s.priceUrgent), priceEmergency: num(s.priceEmergency), hasProblems: _count.problems > 0 })),
+      services: services.map(({ _count, includes, includesEn, ...s }) => ({ ...s, includes: lines(includes), includesEn: lines(includesEn), priceInside: num(s.priceInside), priceOutside: num(s.priceOutside), priceUrgent: num(s.priceUrgent), priceEmergency: num(s.priceEmergency), hasProblems: _count.problems > 0 })),
     });
   }),
 );
@@ -118,6 +119,12 @@ siteServicesRouter.get(
         name: s.name,
         slug: s.slug,
         summary: s.summary,
+        kind: s.kind,
+        nameEn: s.nameEn,
+        summaryEn: s.summaryEn,
+        includesEn: lines(s.includesEn),
+        imageUrl: s.imageUrl,
+        icon: s.icon,
         includes: s.includes.split('\n').map((l) => l.trim()).filter(Boolean),
         audiences: s.audiences,
         requestTypes: s.requestTypes.map((t) => ({ value: t, label: REQUEST_TYPE_AR[t] })),
@@ -146,7 +153,7 @@ siteServicesRouter.get(
         })),
         // كل الأجهزة المتاحة: المربوطة بالخدمة أولًا (linked) ثم بقية الأجهزة — العميل يختار أي جهاز يريده
         devices: allDevices
-          .filter((d) => !d.scopePriced || s.audiences.includes('BUSINESS') || s.devices.some((l) => l.deviceId === d.id))
+          .filter((d) => (!d.scopePriced || s.audiences.includes('BUSINESS') || s.devices.some((l) => l.deviceId === d.id)) && (!d.coversAll || s.devices.some((l) => l.deviceId === d.id)))
           .map((d) => {
             const l = s.devices.find((x) => x.deviceId === d.id);
             return {

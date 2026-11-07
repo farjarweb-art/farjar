@@ -153,6 +153,8 @@ export default function ServiceRequestDetail() {
         <section className="rounded-xl border border-line p-5">
           <h2 className="text-lg">تفاصيل الزيارة</h2>
           <dl className="mt-3 space-y-2 text-[15px]">
+            <Row label="الباقة" value={r.services.map((s) => s.name).join('، ')} />
+            <Row label="تشمل" value={r.services.flatMap((s) => s.includes ?? []).join(' • ')} />
             <Row label="الموعد" value={formatDate(r.scheduledAt, true)} />
             <Row label="أرقام التواصل" value={[r.phone, r.phone2].filter(Boolean).join(' / ')} />
             <Row label="الفني" value={r.technician?.name} />

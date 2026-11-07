@@ -60,7 +60,8 @@ export function bookableDevices(service: { audiences: string[]; devices: LinkRow
   return all
     .filter((d) => d.active && !d.parentId && (!d.scopePriced || business))
     .map((d) => ({ device: d, link: service.devices.find((l) => l.deviceId === d.id) ?? null }))
-    .filter((x) => !x.link?.autoInclude);
+    // خيار "جميع الأجهزة" يظهر فقط حيث حدّد له المدير سعرًا خاصًا (مربوط بالخدمة)
+    .filter((x) => !x.link?.autoInclude && (!x.device.coversAll || x.link));
 }
 
 /** الأجهزة التي يشملها خيار "جميع الأجهزة": أجهزة هذا الفحص (المربوطة بالخدمة)، أو كل الأجهزة إن لم يُربط شيء */
@@ -200,7 +201,8 @@ export async function priceVisit(input: PricingInput) {
     tier,
     zone: { id: zone.id, name: zone.name, requiresApproval: zone.requiresApproval },
     urgency,
-    services: services.map((s) => ({ id: s.id, name: s.name, slug: s.slug, durationMinutes: s.durationMinutes })),
+    // نسخة من الباقة/الخدمة وقت الحجز: الاسم والنوع وما تشمله (لا تتغير بتعديل الباقة لاحقًا)
+    services: services.map((s) => ({ id: s.id, name: s.name, slug: s.slug, kind: s.kind, durationMinutes: s.durationMinutes, includes: s.includes.split('\n').map((l) => l.trim()).filter(Boolean) })),
     problems: problems.map((p) => ({ id: p.id, name: p.name, quoteRequired: p.quoteRequired })),
     /** فيه بنود تُسعَّر لاحقًا بعرض سعر مستقل */
     hasScopePricing: lines.some((l) => l.kind === 'quote'),

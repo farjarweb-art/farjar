@@ -124,6 +124,7 @@ export default function ServiceRequestDetail() {
             <DefList
               items={[
                 ['الخدمات', r.services.map((s) => s.name).join('، ')],
+                r.services.some((s) => s.includes?.length) && ['ما تشمله الباقة', <ul className="list-disc space-y-0.5 ps-5">{r.services.flatMap((s) => s.includes ?? []).map((l) => <li key={l}>{l}</li>)}</ul>],
                 ['نوع الطلب', r.requestTypeLabel],
                 r.problems.length > 0 && ['المشكلة / الخدمات المطلوبة', r.problems.map((p) => p.name).join('، ')],
                 r.devices.length > 0 && ['الأجهزة', r.devices.map((d) => `${d.name}${d.included ? ' (مشمول)' : ''}`).join('، ')],
